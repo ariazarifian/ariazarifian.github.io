@@ -1,6 +1,6 @@
 ---
 layout: default
-permalink: /blog.ariazarifian.github.io
+permalink: /documentation
 title: documentation
 nav: true
 nav_order: 1
