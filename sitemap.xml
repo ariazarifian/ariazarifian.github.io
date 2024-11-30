@@ -1,27 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://squidfunk.github.io/mkdocs-material/</loc>
+         <loc>https://ariazarifian.github.io/</loc>
          <lastmod>2024-11-30</lastmod>
     </url>
     <url>
-         <loc>https://squidfunk.github.io/mkdocs-material/blog/</loc>
+         <loc>https://ariazarifian.github.io/plugins/</loc>
          <lastmod>2024-11-30</lastmod>
     </url>
     <url>
-         <loc>https://squidfunk.github.io/mkdocs-material/plugins/</loc>
+         <loc>https://ariazarifian.github.io/reference/</loc>
          <lastmod>2024-11-30</lastmod>
     </url>
     <url>
-         <loc>https://squidfunk.github.io/mkdocs-material/reference/</loc>
+         <loc>https://ariazarifian.github.io/setup/</loc>
          <lastmod>2024-11-30</lastmod>
     </url>
     <url>
-         <loc>https://squidfunk.github.io/mkdocs-material/setup/</loc>
+         <loc>https://ariazarifian.github.io/tutorials/</loc>
          <lastmod>2024-11-30</lastmod>
     </url>
     <url>
-         <loc>https://squidfunk.github.io/mkdocs-material/tutorials/</loc>
+         <loc>https://ariazarifian.github.io/blog/</loc>
          <lastmod>2024-11-30</lastmod>
     </url>
 </urlset>
