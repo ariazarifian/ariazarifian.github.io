@@ -1,7 +1,7 @@
 {% extends "main.html" %}
 {% block tabs %}
   {{ super() }}
-  <style>.md-header{position:initial}.md-main__inner{margin:0}.md-content{display:none}@media screen and (min-width:60em){.md-sidebar--secondary{display:none}}@media screen and (min-width:76.25em){.md-sidebar--primary{display:none}}</style>
+  <style>.md-header { position: sticky; top: 0; z-index: 1000; }.md-main__inner{margin:0}.md-content{display:none}@media screen and (min-width:60em){.md-sidebar--secondary{display:none}}@media screen and (min-width:76.25em){.md-sidebar--primary{display:none}}</style>
   <section class="mdx-container">
     <div class="md-grid md-typeset">
       <div class="mdx-hero">
@@ -17,9 +17,34 @@
           <a href="https://drive.google.com/file/d/1RxIOia1GwcqOO9frotEJ9aFvVOw58NNS/view?usp=sharing" title="Télécharger mon CV" class="md-button">
             Get my CV
           </a>
-          
         </div>
       </div>
+      <section id="about">
+Aboutme
+      </section>
+      <section id="projects">
+        <div class="parallax-container">
+          <a href="orange/" class="card">
+            <h2>Card 1</h2>
+            <p>This is the content of the first card.</p>
+          </a>
+          <a href="csm/" class="card">
+            <h2>Card 2</h2>
+            <p>This is the content of the second card.</p>
+          </a>
+          <a href="link3.html" class="card">
+            <h2>Card 3</h2>
+            <p>This is the content of the third card.</p>
+          </a>
+          <a href="link4.html" class="card">
+            <h2>Card 4</h2>
+            <p>This is the content of the fourth card.</p>
+          </a>
+        </div>        
+      </section>
+      <section id="contact">
+        contactme
+              </section>
     </div>
   </section>
 {% endblock %}

@@ -33,7 +33,7 @@ theme:
     # - navigation.instant.prefetch
     # - navigation.instant.progress
     # - navigation.prune
-    - navigation.sections
+    # - navigation.sections
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.top
@@ -151,13 +151,14 @@ not_in_nav: |
 # Page tree
 nav:
   - Home: index.md
-  - About: about/index.md
-  - Projects:
-    - projects/index.md
-  - Skills:
-    - skills/index.md
-  - Contact:
-    - contact/index.md
+  - About: /#about
+  - Projects: /#projects
+  - Documentation:
+    - documentation/index.md
+    - Cilium: 
+      - Introduction: documentation/cilium.md
+      - CiliumNetworkPolicy: documentation/cilium-cnp.md
+  - Contact: /#contact
 
 extra_css:
   - assets/extra.css
