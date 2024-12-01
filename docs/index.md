@@ -1,9 +1,9 @@
 ---
 template: home.html
-title: Material for MkDocs
+title: Home
 social:
   cards_layout_options:
-    title: Documentation that simply works
+    title: Doc
 ---
 
-Welcome to Material for MkDocs.
+Welcome 👏.
