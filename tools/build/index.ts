@@ -21,6 +21,7 @@
  */
 
 import { minify as minhtml } from "html-minifier-terser"
+import * as fs from "fs/promises"
 import * as path from "path"
 import {
   EMPTY,
@@ -38,12 +39,13 @@ import {
   toArray,
   zip
 } from "rxjs"
+import sharp from "sharp"
 import { optimize } from "svgo"
 
 import { IconSearchIndex } from "_/components"
 
 import { base, read, resolve, watch, write } from "./_"
-import { copyAll } from "./copy"
+import { copyAll, linkAll } from "./copy"
 import {
   transformScript,
   transformStyle
@@ -166,20 +168,30 @@ const assets$ = concat(
     }))
 )
 
-/* Copy plugins and extensions */
-const sources$ = copyAll("**/*.py", {
-  from: "src",
-  to: base,
-  watch: process.argv.includes("--watch"),
-  transform: async (data, name) => {
-    if (path.basename(name) === "__init__.py") {
-      const metadata = require("../../package.json")
-      return data.replace("$md-version$", metadata.version)
-    } else {
-      return data
-    }
-  }
-})
+/* Handle plugins and extensions */
+const sources$ =
+  process.argv.includes("--watch")
+
+    /* Link sources */
+    ? linkAll("**/*.{py,yml}", {
+        from: "src",
+        to: base,
+        watch: process.argv.includes("--watch")
+      })
+
+    /* Copy sources */
+    : copyAll("**/*.{py,yml}", {
+        from: "src",
+        to: base,
+        transform: async (data, name) => {
+          if (path.basename(name) === "__init__.py") {
+            const metadata = require("../../package.json")
+            return data.replace("$md-version$", metadata.version)
+          } else {
+            return data
+          }
+        }
+      })
 
 /* ------------------------------------------------------------------------- */
 
@@ -297,8 +309,9 @@ const icons$ = defer(() => resolve("**/*.svg", {
   )
 
 /* Compute emoji mappings (based on Twemoji) */
-const emojis$ = defer(() => resolve("venv/**/twemoji_db.py"))
+const emojis$ = defer(() => resolve("?(.)venv"))
   .pipe(
+    switchMap(directory => resolve(`${directory}/**/pymdownx/twemoji_db.py`)),
     switchMap(file => read(file)),
     map(data => {
       const [, payload] = data.match(/^emoji = ({.*})$.alias/ms)!
@@ -381,10 +394,57 @@ const schema$ = merge(
     )
 )
 
+/* Build landing page graphics */
+const home$ = defer(() => (
+  resolve("overrides/assets/images/layers/*.png", { cwd: "src" })
+))
+  .pipe(
+    mergeMap(async file => {
+      const sizes = [1280, 1920, 2560, 3840]
+      for (let i = 0; i < sizes.length; i++) {
+        const suffix = i > 0 ? `@${i + 1}x` : ""
+        const image = sharp(`src/${file}`)
+          .resize(sizes[i])
+
+        /* Resize and compress graphics */
+        await Promise.all([
+
+          /* File format: PNG */
+          fs.writeFile(
+            `${base}/${ext(file, `${suffix}.png`)}`,
+            await image
+              .png({
+                quality: 70,
+                compressionLevel: 9,
+                adaptiveFiltering: true,
+              })
+              .toBuffer()
+          ),
+
+          /* File format: WebP */
+          fs.writeFile(
+            `${base}/${ext(file, `${suffix}.webp`)}`,
+            await image
+              .webp({ quality: 70 })
+              .toBuffer()
+          ),
+
+          /* File format: AVIF */
+          fs.writeFile(
+            `${base}/${ext(file, `${suffix}.avif`)}`,
+            await image
+              .avif({ quality: 70 })
+              .toBuffer()
+          )
+        ])
+      }
+    })
+  )
+
 /* Build overrides */
 const overrides$ =
   process.argv.includes("--all")
-    ? merge(index$, schema$)
+    ? merge(index$, schema$, home$)
     : EMPTY
 
 /* ----------------------------------------------------------------------------

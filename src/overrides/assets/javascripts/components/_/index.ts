@@ -30,10 +30,12 @@ import { getElement, getElements } from "~/browser"
  * Component type
  */
 export type ComponentType =
+  | "hero"                             /* Hero */
   | "iconsearch"                       /* Icon search */
   | "iconsearch-query"                 /* Icon search input */
   | "iconsearch-result"                /* Icon search results */
   | "iconsearch-select"                /* Icon search select */
+  | "parallax"                         /* Parallax container */
   | "sponsorship"                      /* Sponsorship */
   | "sponsorship-count"                /* Sponsorship count */
   | "sponsorship-total"                /* Sponsorship total */
@@ -60,10 +62,12 @@ export type Component<
  * Component type map
  */
 interface ComponentTypeMap {
+  "hero": HTMLElement                  /* Hero */
   "iconsearch": HTMLElement            /* Icon search */
   "iconsearch-query": HTMLInputElement /* Icon search input */
   "iconsearch-result": HTMLElement     /* Icon search results */
   "iconsearch-select": HTMLSelectElement
+  "parallax": HTMLElement              /* Parallax container */
   "sponsorship": HTMLElement           /* Sponsorship */
   "sponsorship-count": HTMLElement     /* Sponsorship count */
   "sponsorship-total": HTMLElement     /* Sponsorship total */

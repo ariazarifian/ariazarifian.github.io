@@ -33,7 +33,6 @@ import {
   defer,
   endWith,
   ignoreElements,
-  merge,
   of,
   switchMap
 } from "rxjs"
@@ -52,15 +51,6 @@ interface TransformOptions {
   from: string                         /* Source destination */
   to: string                           /* Target destination */
 }
-
-/* ----------------------------------------------------------------------------
- * Data
- * ------------------------------------------------------------------------- */
-
-/**
- * Base directory for source map resolution
- */
-const root = new RegExp(`file://${path.resolve(".")}/`, "g")
 
 /* ----------------------------------------------------------------------------
  * Helper functions
@@ -104,11 +94,10 @@ export function transformStyle(
       "node_modules/material-design-color",
       "node_modules/material-shadows"
     ],
-    silenceDeprecations: ["global-builtin", "import"],
-    sourceMap: true
+    silenceDeprecations: ["global-builtin", "import"]
   })))
     .pipe(
-      switchMap(({ css, sourceMap }) => postcss([
+      switchMap(({ css }) => postcss([
         require("autoprefixer"),
         require("postcss-logical"),
         require("postcss-dir-pseudo-class"),
@@ -124,29 +113,21 @@ export function transformStyle(
           : []
       ])
         .process(css, {
-          from: options.from,
-          to: options.to,
-          map: {
-            prev: sourceMap,
-            inline: false
-          }
+          from: options.from
         })
       ),
       catchError(err => {
         console.log(err.formatted || err.message)
         return EMPTY
       }),
-      switchMap(({ css, map }) => {
+      switchMap(({ css }) => {
         const file = digest(options.to, css)
         return concat(
           mkdir(path.dirname(file)),
-          merge(
-            write(`${file}.map`, `${map}`.replace(root, "")),
-            write(`${file}`, css.replace(
-              options.from,
-              path.basename(file)
-            )),
-          )
+          write(`${file}`, css.replace(
+            options.from,
+            path.basename(file)
+          ))
         )
           .pipe(
             ignoreElements(),
@@ -171,8 +152,8 @@ export function transformScript(
     target: "es2015",
     write: false,
     bundle: true,
-    sourcemap: true,
-    legalComments: "inline",
+    sourcemap: false,
+    legalComments: "none",
     minify: process.argv.includes("--optimize"),
     plugins: [
 
@@ -200,24 +181,16 @@ export function transformScript(
     .pipe(
       catchError(() => EMPTY),
       switchMap(({ outputFiles: [file] }) => {
-        const contents = file.text.split("\n")
-        const [, data] = contents[contents.length - 2].split(",")
         return of({
           js:  file.text,
-          map: Buffer.from(data, "base64")
+          map: null
         })
       }),
-      switchMap(({ js, map }) => {
+      switchMap(({ js }) => {
         const file = digest(options.to, js)
         return concat(
           mkdir(path.dirname(file)),
-          merge(
-            write(`${file}.map`, `${map}`),
-            write(`${file}`, js.replace(
-              /(sourceMappingURL=)(.*)/,
-              `$1${path.basename(file)}.map\n`
-            )),
-          )
+          write(`${file}`, js)
         )
           .pipe(
             ignoreElements(),

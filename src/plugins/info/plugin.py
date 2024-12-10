@@ -35,7 +35,7 @@ from io import BytesIO
 from markdown.extensions.toc import slugify
 from mkdocs.config.defaults import MkDocsConfig
 from mkdocs.plugins import BasePlugin, event_priority
-from mkdocs.utils import get_yaml_loader
+from mkdocs.utils.yaml import get_yaml_loader
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from .config import InfoConfig
@@ -86,8 +86,14 @@ class InfoPlugin(BasePlugin[InfoConfig]):
         _, current = res.headers.get("location").rsplit("/", 1)
         present = version("mkdocs-material")
         if not present.startswith(current):
-            log.error("Please upgrade to the latest version.")
-            self._help_on_versions_and_exit(present, current)
+
+            # We can't fetch the latest version of Insiders from GitHub, but the
+            # Community edition might currently be in a beta release advertised
+            # as the latest release. In this case, we need to skip the version
+            # check, or users cannot easily create reproductions.
+            if not regex.search(r"b\d+$", current):
+                log.error("Please upgrade to the latest version.")
+                self._help_on_versions_and_exit(present, current)
 
         # Exit if archive creation is disabled
         if not self.config.archive:

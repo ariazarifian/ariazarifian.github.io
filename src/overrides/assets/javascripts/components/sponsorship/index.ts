@@ -24,7 +24,10 @@ import { Observable, from, map, switchMap, tap } from "rxjs"
 
 import { getOptionalElement, requestJSON } from "~/browser"
 
-import { renderPrivateSponsor, renderPublicSponsor } from "_/templates"
+import {
+  renderPrivateSponsor,
+  renderPublicSponsor
+} from "_/templates"
 
 import { Component, getComponentElements } from "../_"
 
