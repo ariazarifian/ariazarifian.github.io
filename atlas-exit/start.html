@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atlas Exit — Démarrer votre dossier</title>
+  <meta name="description" content="Ouvrez votre dossier d'expatriation Atlas Exit et sélectionnez l'offre adaptée à votre projet." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="start-page">
+  <div class="noise"></div>
+  <header class="site-header compact"><a class="brand" href="index.html"><span class="brand-mark">A</span><span class="brand-text"><strong>Atlas Exit</strong><small>Expatriation stratégique</small></span></a><nav><a href="index.html">Retour au site</a></nav></header>
+  <main class="start-layout">
+    <section class="form-shell">
+      <p class="eyebrow">Ouverture de dossier</p><h1>Décrivez votre projet.</h1>
+      <p class="lead">Sélectionnez une offre, précisez votre pays cible et les éléments clés. Le parcours de paiement pourra ensuite être branché à Revolut ou Stripe.</p>
+      <form class="intake-form" id="intakeForm">
+        <div class="field-grid two"><label><span>Nom complet</span><input type="text" placeholder="Votre nom" /></label><label><span>Email</span><input type="email" placeholder="vous@domaine.com" /></label></div>
+        <div class="field-grid two"><label><span>Pays de départ</span><input type="text" placeholder="France" /></label><label><span>Pays cible</span><input type="text" placeholder="Suisse, EAU, Singapour…" /></label></div>
+        <label><span>Offre choisie</span><div class="offer-selector"><button type="button" class="select-offer active" data-offer="Expat Fit">Expat Fit</button><button type="button" class="select-offer" data-offer="Strategic Exit">Strategic Exit</button><button type="button" class="select-offer" data-offer="Relocation Signature">Relocation Signature</button></div><input type="hidden" id="offerField" value="Expat Fit" /></label>
+        <div class="field-grid two"><label><span>Horizon de départ</span><select><option>0–3 mois</option><option>3–6 mois</option><option>6–12 mois</option><option>Plus de 12 mois</option></select></label><label><span>Profil</span><select><option>Salarié</option><option>Freelance / consultant</option><option>Fondateur / entrepreneur</option><option>Investisseur</option><option>Famille</option></select></label></div>
+        <label><span>Contexte et objectifs</span><textarea rows="6" placeholder="Expliquez brièvement votre situation, vos objectifs, vos contraintes et les sujets sur lesquels vous attendez un accompagnement."></textarea></label>
+        <div class="form-actions"><a class="btn btn-primary" id="mailDraft" href="#">Préparer la demande</a><a class="btn btn-secondary" href="index.html">Continuer à explorer</a></div>
+      </form>
+    </section>
+    <aside class="summary-panel glass"><p class="eyebrow">Vue d’ensemble</p><h2>Ce que le client perçoit</h2><ul class="summary-list"><li>Un positionnement premium</li><li>Une lecture stratégique des pays</li><li>Un onboarding clair</li><li>Une montée en gamme naturelle</li></ul><div class="payment-placeholder"><small>Étape suivante possible</small><strong>Paiement</strong><p>Intégration possible via Revolut Business, Stripe ou formulaire de devis avant facturation.</p></div></aside>
+  </main>
+  <script src="script.js"></script>
+</body>
+</html>
