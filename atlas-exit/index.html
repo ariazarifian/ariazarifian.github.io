@@ -1,60 +1,45 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Atlas Exit — Expatriation haut de gamme</title>
-  <meta name="description" content="Atlas Exit accompagne les projets d'expatriation haut de gamme : stratégie pays, plan de sortie, coordination administrative et installation." />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css" />
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1115"><meta name="description" content="Explorez le monde autrement. Une carte interactive pour comparer les destinations, consulter des repères fiscaux sourcés et préparer la suite de votre projet d’expatriation.">
+<meta name="referrer" content="strict-origin-when-cross-origin"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'">
+<title>Atlas Exit — Le monde, selon vous.</title><link rel="stylesheet" href="style.css?v=map3"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%230b1115'/%3E%3Cpath d='M20 6L33 32H27L20 16L13 32H7Z' fill='%23d6c19b'/%3E%3C/svg%3E">
+<script src="catalog.js?v=map3" defer></script><script src="script.js?v=map3" defer></script>
 </head>
 <body>
-  <div class="noise"></div>
-  <header class="site-header">
-    <a class="brand" href="index.html"><span class="brand-mark">A</span><span class="brand-text"><strong>Atlas Exit</strong><small>Expatriation stratégique</small></span></a>
-    <nav><a href="#countries">Pays</a><a href="#method">Méthode</a><a href="#offers">Offres</a><a href="start.html" class="nav-cta">Commencer</a></nav>
-  </header>
-  <main>
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">Relocation · Fiscalité de départ · Installation</p>
-        <h1>Quitter un pays n’est pas une formalité.<br><span>Nous en faisons un projet maîtrisé.</span></h1>
-        <p class="lead">Atlas Exit conçoit et coordonne les projets d’expatriation haut de gamme : choix du pays, plan de sortie, documents, prestataires, calendrier et installation. Une expérience premium, pensée pour les profils ambitieux, mobiles et exigeants.</p>
-        <div class="hero-actions"><a class="btn btn-primary" href="start.html">Réserver un diagnostic</a><a class="btn btn-secondary" href="#countries">Explorer les destinations</a></div>
-        <div class="hero-stats"><div><strong>08</strong><span>Pays mis en avant</span></div><div><strong>03</strong><span>Niveaux d'accompagnement</span></div><div><strong>1</strong><span>Trajectoire claire</span></div></div>
-      </div>
-      <div class="hero-panel">
-        <div class="hero-card glass">
-          <div class="card-topline">Aperçu destination</div>
-          <div class="hero-country"><div><strong>Suisse</strong><span>Stabilité élevée · fiscalité modérée à attractive selon canton</span></div><span class="country-pill">Premium fit</span></div>
-          <div class="mini-bars"><div><span>Fiscalité</span><b style="width:78%"></b></div><div><span>Stabilité</span><b style="width:92%"></b></div><div><span>Clarté administrative</span><b style="width:74%"></b></div><div><span>Business climate</span><b style="width:88%"></b></div></div>
-          <p class="disclaimer">Prototype visuel : les notes affichées ici sont indicatives et servent à démontrer l’expérience produit.</p>
-        </div>
-      </div>
-    </section>
-    <section class="section intro-strip"><div class="strip-card"><p>L’expatriation n’est pas qu’une destination.</p><h2>Sortie fiscale, statut personnel, logement, banque, assurance, véhicule, société, administratif : tout doit s’emboîter.</h2></div></section>
-    <section class="section section-countries" id="countries">
-      <div class="section-head"><div><p class="eyebrow">Explorer les pays</p><h2>Pas une liste. <span>Une carte de décisions.</span></h2></div><p class="section-text">Choisis une destination et ouvre sa fiche stratégique : pression fiscale, stabilité, climat politique, facilité d'installation, style de vie et angle de recommandation.</p></div>
-      <div class="country-toolbar glass"><div class="filter-group"><button class="chip active" data-filter="all">Tous</button><button class="chip" data-filter="tax">Fiscalité</button><button class="chip" data-filter="stability">Stabilité</button><button class="chip" data-filter="business">Business</button><button class="chip" data-filter="lifestyle">Lifestyle</button></div><input id="countrySearch" type="search" placeholder="Rechercher un pays" /></div>
-      <div id="countryGrid" class="country-grid"></div>
-    </section>
-    <section class="section section-method" id="method"><div class="section-head"><div><p class="eyebrow">Méthode</p><h2>Une trajectoire premium,<span> du doute au départ.</span></h2></div></div><div class="timeline">
-      <article class="step glass"><span>01</span><h3>Diagnostic</h3><p>Profil, objectifs, horizon temporel, structure de revenus, contraintes familiales et niveau de complexité.</p></article>
-      <article class="step glass"><span>02</span><h3>Matching pays</h3><p>Sélection resserrée de destinations avec lecture stratégique : fiscalité, stabilité, politique, business et qualité de vie.</p></article>
-      <article class="step glass"><span>03</span><h3>Plan d’exécution</h3><p>Roadmap, checklist, calendrier, documents, priorités et risques à traiter avant le départ.</p></article>
-      <article class="step glass"><span>04</span><h3>Conciergerie</h3><p>Coordination des démarches, suivi administratif et relais vers les partenaires spécialisés lorsque nécessaire.</p></article>
-    </div></section>
-    <section class="section section-offers" id="offers"><div class="section-head"><div><p class="eyebrow">Offres</p><h2>Des formats clairs.<span> Une exécution haut de gamme.</span></h2></div><p class="section-text">Le parcours peut commencer par un diagnostic court puis évoluer vers un accompagnement stratégique ou une conciergerie complète.</p></div><div class="offer-grid">
-      <article class="offer-card glass"><p class="offer-name">Diagnostic</p><h3>Expat Fit</h3><div class="price">149€</div><ul><li>Analyse initiale du projet</li><li>1 shortlist de pays</li><li>Roadmap synthétique</li><li>Compte-rendu stratégique</li></ul><a class="btn btn-secondary" href="start.html?offer=Expat%20Fit">Choisir cette offre</a></article>
-      <article class="offer-card featured"><p class="offer-badge">Recommandée</p><p class="offer-name">Accompagnement</p><h3>Strategic Exit</h3><div class="price">690€</div><ul><li>Diagnostic complet</li><li>Plan de sortie détaillé</li><li>Checklist documentaire</li><li>Coordination des premières démarches</li></ul><a class="btn btn-primary" href="start.html?offer=Strategic%20Exit">Choisir cette offre</a></article>
-      <article class="offer-card glass"><p class="offer-name">Conciergerie</p><h3>Relocation Signature</h3><div class="price">Sur étude</div><ul><li>Projet multi-étapes</li><li>Famille / société / patrimoine</li><li>Coordination premium</li><li>Suivi prolongé</li></ul><a class="btn btn-secondary" href="start.html?offer=Relocation%20Signature">Demander un dossier</a></article>
-    </div></section>
-    <section class="section final-cta"><div class="cta-shell"><div><p class="eyebrow">Passer de la curiosité à l’action</p><h2>Vous avez une idée du départ.<br><span>Nous la transformons en projet exécutable.</span></h2></div><a class="btn btn-primary" href="start.html">Commencer maintenant</a></div></section>
-  </main>
-  <aside id="countryDrawer" class="country-drawer" aria-hidden="true"><button id="closeDrawer" class="drawer-close" aria-label="Fermer">×</button><div id="drawerContent"></div></aside><div id="drawerBackdrop" class="drawer-backdrop"></div>
-  <footer class="site-footer"><p>Atlas Exit — prototype de direction artistique et d’architecture produit pour un studio d’expatriation premium.</p></footer>
-  <script src="script.js"></script>
-</body>
-</html>
+<a href="#countrySearch" class="skip">Rechercher une destination</a>
+<header class="topbar">
+<a class="brand" href="/" aria-label="Atlas Exit, accueil"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 5L34 34H27L20 18L13 34H6Z"/><path class="fine-stroke" d="M20 0V40M0 20H40"/></svg><span>ATLAS <b>EXIT</b><small>L’art de choisir ailleurs.</small></span></a>
+<nav class="topnav" aria-label="Navigation"><a class="nav-active" href="/">Explorer</a><button id="savedToggle">Ma sélection <span id="savedCount">0</span></button></nav>
+<div class="topactions"><button class="icon-button" id="helpBtn" aria-label="Comment explorer la carte">?</button><a class="quiet-cta" id="topStart" href="start.html">Mon projet <span>↗</span></a></div>
+</header>
+<main class="workspace">
+<aside class="sidebar" id="sidebar" aria-label="Filtres et destinations">
+<div class="sidebar-top"><span class="eyebrow">EXPLORATEUR DE DESTINATIONS</span><h1>Le monde, selon vous.</h1><p>Ajustez vos repères. Trouvez vos horizons.</p></div>
+<label class="search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg><input id="countrySearch" type="search" placeholder="Un pays, une envie d’ailleurs…" autocomplete="off" aria-label="Rechercher un pays"><kbd>/</kbd></label>
+<div class="filter-section"><div class="filter-label"><span>Zone géographique</span><button id="resetFilters" class="link-button">Réinitialiser</button></div><div class="regions" id="regions"><button data-region="all" class="on" aria-pressed="true">Le monde</button><button data-region="Europe" aria-pressed="false">Europe</button><button data-region="Asia" aria-pressed="false">Asie</button><button data-region="Americas" aria-pressed="false">Amériques</button><button data-region="Africa" aria-pressed="false">Afrique</button><button data-region="Oceania" aria-pressed="false">Océanie</button></div></div>
+<div class="filter-section"><div class="filter-label"><label for="taxRange">Barème d’impôt personnel</label><output id="taxOutput" for="taxRange">Tous</output></div><input id="taxRange" class="range" type="range" min="0" max="60" step="5" value="60"><div class="range-label"><span>0 %</span><span>Taux supérieur · pas taux réel</span></div><p class="micro">Périmètres nationaux différents. <button class="link-button" data-method>Lire les limites ↗</button></p></div>
+<div class="filter-section peace-filter"><div class="filter-label"><label for="peaceRange">Classement de paix</label><output id="peaceOutput" for="peaceRange">Tous</output></div><input id="peaceRange" class="range" type="range" min="10" max="170" step="10" value="170"><div class="range-label"><span>Top 10</span><span>GPI · édition 2025</span></div></div>
+<div class="results-heading"><span id="resultCount" aria-live="polite">Chargement de l’atlas…</span><button class="link-button" id="surpriseBtn">Me surprendre <span>↗</span></button></div>
+<div class="results" id="results" aria-label="Destinations disponibles"></div>
+<div class="sidebar-footer"><a href="methodologie.html">Sources & méthode ↗</a><span>Édition · septembre 2026</span></div>
+</aside>
+<section class="map-shell" aria-label="Carte du monde interactive">
+<div class="map-toolbar"><div class="layers" role="group" aria-label="Colorer la carte"><button class="on" data-layer="explore" aria-pressed="true">Découvrir</button><button data-layer="tax" aria-pressed="false">Fiscalité</button><button data-layer="peace" aria-pressed="false">Paix <small>2025</small></button></div><button id="mobileFilters" class="filter-mobile" aria-expanded="false" aria-controls="sidebar">Filtres <span id="filterBadge"></span></button><button id="focusMode" class="icon-button" aria-label="Masquer le panneau pour agrandir la carte" title="Mode immersion">⛶</button></div>
+<div class="map-caption"><span class="eyebrow" id="mapLabel">VOTRE PROCHAIN CHAPITRE</span><p id="mapSubtitle">Tout commence par un endroit.</p></div>
+<svg id="worldMap" viewBox="0 0 1600 900" tabindex="0" role="img" aria-label="Carte interactive. Glissez pour déplacer, molette pour zoomer. Au clavier : flèches, plus, moins et zéro. La liste des pays permet aussi de naviguer."><defs><radialGradient id="sea"><stop stop-color="#14282c"/><stop offset="1" stop-color="#0b1115"/></radialGradient><filter id="softGlow"><feGaussianBlur stdDeviation="4"/></filter><pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse"><path d="M0 7L7 0" stroke="#38444b" stroke-width=".4"/></pattern></defs><rect width="1600" height="900" fill="transparent"/><g id="mapTransform"><g id="graticule"></g><g id="countries"></g><g id="mapLabels" aria-hidden="true"></g><g id="pins"></g></g></svg>
+<div id="mapError" class="map-error" hidden><strong>La carte n’a pas pu se charger.</strong><p>Rechargez la carte ou consultez les sources et la méthode.</p><button id="reloadMap" class="button">Réessayer</button></div>
+<div class="map-help" id="mapHelp"><span class="mouse-symbol">↔</span> Glissez pour explorer <span class="help-dot">·</span> Zoomez pour vous rapprocher</div>
+<div class="map-controls"><button id="zoomIn" aria-label="Zoomer">+</button><span id="zoomValue">1×</span><button id="zoomOut" aria-label="Dézoomer">−</button><i></i><button id="homeMap" aria-label="Revenir à la vue mondiale" title="Vue mondiale">⌖</button></div>
+<div class="legend" id="legend"><span class="legend-dot"></span><span>Destinations documentées</span><span class="legend-muted"></span><span>À compléter</span></div>
+<div class="map-footnote"><span id="coords">ATLAS / WORLD EXPLORER</span><button class="link-button" data-method>Méthode & données ↗</button></div>
+<div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+</section>
+<aside id="inspector" class="inspector" aria-label="Fiche destination" hidden><div id="inspectorContent"></div></aside>
+</main>
+<div class="compare-tray" id="compareTray" hidden><div id="trayCountries"></div><button id="openCompare" class="button">Comparer <span id="compareCount">0</span> <span>↗</span></button></div>
+<dialog id="compareDialog" class="modal compare-modal"><div class="modal-head"><div><span class="eyebrow">VOTRE SÉLECTION</span><h2>Quelques pays.<br><em>Une autre perspective.</em></h2></div><button class="icon-button" data-close aria-label="Fermer la comparaison">×</button></div><div id="compareTable" class="comparison-scroll"></div><div class="modal-footer"><p>Des repères pour explorer, pas une recommandation personnelle.</p><a href="start.html" id="compareStart" class="button">Préparer mon départ ↗</a></div></dialog>
+<dialog id="helpDialog" class="modal help-modal"><button class="icon-button modal-x" data-close aria-label="Fermer">×</button><span class="eyebrow">LE MONDE À PORTÉE DE MAIN</span><h2>Prenez le temps<br><em>de vous projeter.</em></h2><div class="help-grid"><p><b>01 / Explorez</b>Glissez, zoomez ou recherchez un pays. Sur mobile, pincez avec deux doigts.</p><p><b>02 / Changez de regard</b>Fiscalité, paix ou région : les couleurs et la liste répondent à vos filtres.</p><p><b>03 / Gardez vos horizons</b>Ajoutez jusqu’à quatre pays, comparez-les, puis préparez votre projet.</p></div><p class="micro">La sélection est enregistrée uniquement dans ce navigateur. La carte ne crée aucun compte. Les données ne sont pas en temps réel.</p><a href="methodologie.html" class="text-link">Sources, dates et limites ↗</a></dialog>
+<div id="toast" role="status" aria-live="polite"></div><noscript><div class="nojs">Activez JavaScript pour explorer la carte. <a href="methodologie.html">Consulter les sources</a> ou <a href="start.html">préparer un projet</a>.</div></noscript>
+</body></html>
