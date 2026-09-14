@@ -1,0 +1,46 @@
+name: Atlas geography integrity
+on:
+  push:
+    branches: [ops/atlas-exit-20260914]
+    paths: [.github/workflows/atlas-geography-integrity.yml]
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/atlas-exit-20260914
+      - name: Restore the verified source byte and check the complete dataset
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          p = Path('atlas-exit/geography.json')
+          data = p.read_bytes()
+          expected = '6b07af62f57d2f8f94417fa591ad43c7b02c2ade'
+          observed = hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
+          if observed == '2ab1dc32ccbf8a5d02652f1871aee57dd78c5c2b':
+              old, new = b'EX`@C|NAY', b'EX`@C|@NAY'
+              assert data.count(old) == 1
+              data = data.replace(old, new)
+          actual = hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
+          assert actual == expected, f'Unexpected geometry: {actual}'
+          rows = json.loads(data)
+          assert len(rows) == 176
+          assert len({r[0] for r in rows}) == 176
+          assert next(r for r in rows if r[0] == 'VUT')[6][1] == 'qgBxHLE?OIDCN'
+          p.write_bytes(data)
+          print('Verified geography:', actual, len(rows), 'shapes')
+          PY
+      - name: Commit only the verified atlas geography when changed
+        run: |
+          if ! git diff --quiet -- atlas-exit/geography.json; then
+            git config user.name 'Atlas source verification'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -- atlas-exit/geography.json
+            git commit -m 'Restore verified atlas geographic data'
+            git push origin HEAD:ops/atlas-exit-20260914
+          fi
