@@ -1,0 +1,1 @@
+.buy{cursor:pointer;background:#172e30;color:#fff;transition:transform .16s ease,background-color .16s ease,box-shadow .16s ease}.buy:hover{background:#213d3f;transform:translateY(-1px);box-shadow:0 8px 20px rgba(23,46,48,.14)}.buy:active{transform:translateY(0);box-shadow:none}@media(prefers-reduced-motion:reduce){.buy{transition:none}.buy:hover{transform:none}}
