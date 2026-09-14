@@ -28,3 +28,33 @@ function bind(root){const host=root.querySelector('[data-tax-gauge]');if(!host)r
 }
 window.AtlasTaxGauge={calculate,render,bind};
 })();
+/* Atlas Exit · compact summaries and US entrepreneur routes · 2026-09-14 */
+(()=>{'use strict';
+const ROUTES=[['E-2','Investisseur'],['O-1A','Talent / traction'],['L-1A','Transfert de société'],['EB-2 NIW','Green Card potentielle']];
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+function selected(){const e=window.AtlasExplorer;if(!e?.state?.selected)return null;return e.getCountries?.().find(c=>c.id===e.state.selected)||null}
+function projectHref(id){return `offres.html?countries=${encodeURIComponent(id)}`}
+function visaBlock(c){
+  const us=c.id==='USA'||c.parent==='USA';
+  if(us){return `<section class="mobility-strip"><span class="eyebrow">VISAS & DROIT DE TRAVAIL</span><strong>4 voies à regarder avant la fiscalité</strong><div class="visa-mini-grid">${ROUTES.map(([a,b])=>`<div class="visa-chip"><b>${a}</b><span>${b}</span></div>`).join('')}</div><div class="compact-actions"><a href="immigration-usa.html">Voir les voies entrepreneur ↗</a><a href="${projectHref(c.id)}">Guide PDF USA · 29 € ↗</a></div></section>`}
+  const meta=window.ATLAS_CATALOG?.[c.id],src=meta?.residence?.source,href=src&&window.ATLAS_SOURCES?.[src];
+  if(/^https:\/\//.test(href||''))return `<section class="mobility-strip compact"><span class="eyebrow">RÉSIDENCE & VISAS</span><div class="compact-actions"><a href="${href}" target="_blank" rel="noopener noreferrer">Portail officiel ↗</a><a href="${projectHref(c.id)}">Préparer mon projet ↗</a></div></section>`;
+  return '';
+}
+function enhanceInspector(){
+  const root=$('#inspectorContent'),c=selected();if(!root||!c||!root.children.length)return;
+  const body=$('.inspector-body',root);if(!body)return;
+  const remember=$$('.detail-section',body).find(s=>$('h3',s)?.textContent.trim()==='À RETENIR');
+  if(remember){const critical=$('.critical-note',remember)?.cloneNode(true);remember.remove();if(critical){const tax=$('.tax-stack',body);(tax?.parentNode||body).insertBefore(critical,tax?.nextSibling||null)}}
+  $$('p.micro',body).forEach(p=>{if(/^Dividendes et plus-values\s*: pas encore documentés/i.test(p.textContent.trim()))p.remove()});
+  if(!$('.mobility-strip',body)){const html=visaBlock(c);if(html){const anchor=$('.source-disclosure',body)||$('.context-disclosure',body)||$('.guide-link',body);const box=document.createElement('div');box.innerHTML=html;body.insertBefore(box.firstElementChild,anchor||null)}}
+  const direct=$$('.detail-section',body).filter(s=>s.parentElement===body);
+  if(direct.length&&!$('.atlas-data-details',body)){const d=document.createElement('details');d.className='context-disclosure atlas-data-details';d.innerHTML='<summary>Données pays & installation</summary>';direct.forEach(s=>d.appendChild(s));const ref=$('.local-time',body)||$('.guide-link',body);body.insertBefore(d,ref||null)}
+  if((c.id==='USA'||c.parent==='USA')&&!$('.summary-cta-row',body)){const row=document.createElement('div');row.className='summary-cta-row';row.innerHTML='<a href="offres.html?countries=USA">Guide PDF USA · 29 € ↗</a><a href="immigration-usa.html">Visas entrepreneur ↗</a>';body.appendChild(row)}
+}
+function enhanceFederal(){const f=$('.federal-summary');if(!f||$('.federal-mobility',f))return;const d=document.createElement('div');d.className='federal-mobility';d.innerHTML='<span>ENTREPRENEURS</span><b>E-2 · O-1A · L-1A · EB-2 NIW</b><a href="immigration-usa.html">Visas & droit de travail ↗</a>';f.appendChild(d)}
+let busy=false;function run(){if(busy)return;busy=true;try{enhanceInspector();enhanceFederal()}finally{busy=false}}
+const root=$('#inspectorContent');if(root)new MutationObserver(()=>queueMicrotask(run)).observe(root,{childList:true,subtree:true});
+new MutationObserver(()=>queueMicrotask(run)).observe(document.body,{attributes:true,attributeFilter:['class'],subtree:false});
+document.addEventListener('click',()=>setTimeout(run,0));window.addEventListener('hashchange',()=>setTimeout(run,0));setTimeout(run,200);
+})();
