@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://az-consulting-studio-pdf.onrender.com/sitemap.xml
