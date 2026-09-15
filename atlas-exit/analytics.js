@@ -96,6 +96,15 @@
       track('sample_guide_click', { content_type: 'guide', item_id: 'guide-usa-1-2' });
     } else if (href.includes('start.html') || href.includes('accompagnement.html')) {
       track('lead_start', { link_url: href });
+    } else if (href.startsWith('mailto:') || href.includes('mail.google.com')) {
+      track('contact_channel_open', { channel: href.startsWith('mailto:') ? 'mailto' : 'gmail' });
+    }
+  }, { capture: true });
+
+  document.addEventListener('submit', (e) => {
+    if (e.target && e.target.id === 'intakeForm') {
+      track('generate_lead', { lead_source: 'atlas_intake_form' });
+      track('lead_message_prepared', { form_id: 'intakeForm' });
     }
   }, { capture: true });
 
