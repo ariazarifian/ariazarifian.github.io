@@ -1,51 +1,6 @@
 (() => {
   const GUIDE_VALUE = 29;
 
-  // The world map is intentionally lightweight, but the USA state layer is zoomed
-  // much further than country polygons. Load a denser same-origin state outline
-  // before commerce-data.js is evaluated so the existing map engine can keep its
-  // interactions while drawing cleaner state/coast boundaries.
-  function installDetailedUSGeometry() {
-    if (!document.getElementById('worldMap')) return;
-
-    let stateRings;
-    try {
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'us-geometry-hires.json?v=1', false);
-      xhr.send(null);
-      if ((xhr.status >= 200 && xhr.status < 300) || xhr.status === 0) {
-        stateRings = JSON.parse(xhr.responseText);
-      }
-    } catch (_) {
-      return;
-    }
-    if (!stateRings || typeof stateRings !== 'object') return;
-
-    const apply = (commerce) => {
-      if (!commerce || !Array.isArray(commerce.states)) return commerce;
-      for (const state of commerce.states) {
-        const detailed = stateRings[state.code];
-        if (Array.isArray(detailed) && detailed.length) state.rings = detailed;
-      }
-      return commerce;
-    };
-
-    if (window.ATLAS_COMMERCE) {
-      apply(window.ATLAS_COMMERCE);
-      return;
-    }
-
-    let commerceValue;
-    Object.defineProperty(window, 'ATLAS_COMMERCE', {
-      configurable: true,
-      enumerable: true,
-      get() { return commerceValue; },
-      set(value) { commerceValue = apply(value); }
-    });
-  }
-
-  installDetailedUSGeometry();
-
   function track(name, data = {}) {
     if (window.umami && typeof window.umami.track === 'function') {
       window.umami.track(name, data);
