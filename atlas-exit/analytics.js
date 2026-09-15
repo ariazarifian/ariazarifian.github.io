@@ -54,7 +54,7 @@
       <div class="atlas-consent-card">
         <p><strong>Mesure d’audience</strong><br>Atlas utilise Google Analytics pour comprendre les visites et améliorer le site. La publicité personnalisée est désactivée.</p>
         <div class="atlas-consent-actions">
-          <a href="methodologie.html#confidentialite">En savoir plus</a>
+          <a href="privacy.html">En savoir plus</a>
           <button type="button" data-atlas-consent="denied">Refuser</button>
           <button type="button" data-atlas-consent="granted" class="primary">Accepter</button>
         </div>
