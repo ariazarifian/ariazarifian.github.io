@@ -47,4 +47,21 @@
       return new Response(JSON.stringify(data),{status:response.status,statusText:response.statusText,headers:{'Content-Type':'application/json; charset=utf-8'}});
     }catch(error){console.warn('Atlas micro extra:',error);return response;}
   };
+
+  document.addEventListener('DOMContentLoaded',()=>{
+    let tries=0;
+    const timer=setInterval(()=>{
+      tries++;
+      let seen=0;
+      for(const id of window.ATLAS_MICRO_EXTRA_MISSING||[]){
+        const pin=document.querySelector(`#pins .country-pin[data-id="${id}"]`);
+        if(!pin) continue;
+        seen++;
+        pin.classList.add('micro-jurisdiction-pin');
+        const label=pin.querySelector('.pin-label');
+        if(label) label.style.display='none';
+      }
+      if((window.ATLAS_MICRO_EXTRA_MISSING?.length&&seen===window.ATLAS_MICRO_EXTRA_MISSING.length)||tries>120) clearInterval(timer);
+    },50);
+  });
 })();
