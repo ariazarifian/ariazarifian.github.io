@@ -49,6 +49,16 @@
         currency: 'EUR'
       });
     }
+
+    // Atlas world-map coverage is deliberately kept in a separate data layer.
+    // Load it only on the explorer so content pages stay lightweight.
+    if (document.querySelector('#worldMap') && !window.ATLAS_WORLD_EXPANSION) {
+      const script = document.createElement('script');
+      script.src = 'world-expansion.js?v=1';
+      script.async = true;
+      script.dataset.atlasWorldExpansion = '1';
+      document.head.append(script);
+    }
   });
 
   window.AtlasAnalytics = { track };
