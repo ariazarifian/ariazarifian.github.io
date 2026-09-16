@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="655" height="927" viewBox="0 0 655 927" role="img" aria-labelledby="title desc">
+<title id="title">Atlas Exit — Guide d’expatriation États-Unis — Édition 2.0</title>
+<desc id="desc">Couverture sombre avec lignes diagonales, titre États-Unis et sous-titre De la décision aux 90 premiers jours.</desc>
+<rect width="655" height="927" fill="#0d1d22"/>
+<g stroke="#6f8b84" stroke-width="1" opacity=".34">
+  <path d="M-85 320 L205 -40"/><path d="M-20 390 L270 -40"/><path d="M45 460 L335 -40"/><path d="M110 530 L400 -40"/><path d="M175 600 L465 -40"/><path d="M240 670 L530 -40"/><path d="M305 740 L595 -40"/><path d="M370 810 L660 -40"/><path d="M435 880 L725 -40"/><path d="M500 950 L790 -40"/>
+</g>
+<g font-family="Arial,Helvetica,sans-serif">
+  <text x="60" y="78" fill="#c7ad73" font-size="12" letter-spacing=".8">ATLAS EXIT / GUIDE D’EXPATRIATION PRATIQUE</text>
+  <text x="58" y="272" fill="#f4f1e9" font-size="58" font-family="Georgia,'Times New Roman',serif">États-Unis.</text>
+  <text x="60" y="334" fill="#f4f1e9" font-size="30" font-family="Georgia,'Times New Roman',serif">De la décision</text>
+  <text x="60" y="374" fill="#f4f1e9" font-size="30" font-family="Georgia,'Times New Roman',serif">aux 90 premiers jours.</text>
+  <text x="62" y="430" fill="#aebbb8" font-size="13">Immigration · Départ de France · Installation · Business · Fiscalité</text>
+  <line x1="60" y1="752" x2="595" y2="752" stroke="#b89d64" stroke-width="1"/>
+  <text x="60" y="785" fill="#c7ad73" font-size="12" letter-spacing=".5">ÉDITION 2.0 / 16 SEPTEMBRE 2026</text>
+  <text x="60" y="818" fill="#9dacaa" font-size="9.8">Guide général de préparation. Les situations juridiques, fiscales et d’assurance</text>
+  <text x="60" y="833" fill="#9dacaa" font-size="9.8">exigent une vérification individuelle si nécessaire.</text>
+</g>
+</svg>
