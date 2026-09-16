@@ -1,1 +1,27 @@
-(()=>{'use strict';const paths=['extrait-gz-1.txt','excerpt-parts/g2-1.txt','excerpt-parts/g2-2.txt','excerpt-parts/g2-3.txt','excerpt-parts/g2-4.txt','excerpt-parts/g2-5.txt','extrait-gz-3.txt','excerpt-parts/g4-1.txt','excerpt-parts/g4-2.txt','excerpt-parts/g4-3a.txt','excerpt-parts/g4-3b.txt','excerpt-parts/g4-3c.txt','excerpt-parts/g4-3d.txt','excerpt-parts/g4-4.txt'];const expectedSize=21266;const expectedSha='939772a57d0b274bf7a525f058104712ede6aeac99fedb73b567d026bfdec3ed';const status=document.getElementById('status');const open=document.getElementById('openPdf');const frame=document.getElementById('pdfFrame');const fallback=document.getElementById('fallback');const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');(async()=>{try{if(!('DecompressionStream'in window)||!crypto?.subtle)throw new Error('Navigateur non compatible');const parts=await Promise.all(paths.map(async p=>{const r=await fetch(p,{cache:'no-store'});if(!r.ok)throw new Error('Partie manquante');return(await r.text()).trim()}));const b64=parts.join('');const raw=atob(b64);const compressed=Uint8Array.from(raw,c=>c.charCodeAt(0));const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));const buffer=await new Response(stream).arrayBuffer();if(buffer.byteLength!==expectedSize)throw new Error('Taille invalide');const digest=hex(await crypto.subtle.digest('SHA-256',buffer));if(digest!==expectedSha)throw new Error('Empreinte invalide');const header=new TextDecoder('ascii').decode(buffer.slice(0,5));if(header!=='%PDF-')throw new Error('Format invalide');const blob=new Blob([buffer],{type:'application/pdf'});const url=URL.createObjectURL(blob);open.href=url;open.target='_blank';open.rel='noopener noreferrer';open.hidden=false;frame.src=url;status.textContent='Extrait gratuit · 5 pages du guide · fichier vérifié';window.addEventListener('beforeunload',()=>URL.revokeObjectURL(url));}catch(err){console.error(err);status.textContent='Impossible de charger l’extrait.';open.hidden=true;frame.hidden=true;fallback.hidden=false;}})();})();
+(()=>{'use strict';
+const paths=['excerpt-v2-gz.txt'];
+const expectedSize=10166;
+const expectedSha='955a6ec02df82885c92dcbba00c18af4781a164f0561a60a124c25f58e269c4c';
+const status=document.getElementById('status');
+const open=document.getElementById('openPdf');
+const frame=document.getElementById('pdfFrame');
+const fallback=document.getElementById('fallback');
+const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
+(async()=>{try{
+  if(!('DecompressionStream' in window)||!crypto?.subtle)throw new Error('Navigateur non compatible');
+  const parts=await Promise.all(paths.map(async p=>{const r=await fetch(p,{cache:'no-store'});if(!r.ok)throw new Error('Partie manquante');return(await r.text()).trim()}));
+  const raw=atob(parts.join(''));
+  const compressed=Uint8Array.from(raw,c=>c.charCodeAt(0));
+  const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const buffer=await new Response(stream).arrayBuffer();
+  if(buffer.byteLength!==expectedSize)throw new Error('Taille invalide');
+  const digest=hex(await crypto.subtle.digest('SHA-256',buffer));
+  if(digest!==expectedSha)throw new Error('Empreinte invalide');
+  if(new TextDecoder('ascii').decode(buffer.slice(0,5))!=='%PDF-')throw new Error('Format invalide');
+  const blob=new Blob([buffer],{type:'application/pdf'});
+  const url=URL.createObjectURL(blob);
+  open.href=url;open.target='_blank';open.rel='noopener noreferrer';open.hidden=false;frame.src=url;
+  status.textContent='Extrait gratuit · 5 pages de l’édition 2.0 · fichier vérifié';
+  window.addEventListener('beforeunload',()=>URL.revokeObjectURL(url));
+}catch(err){console.error(err);status.textContent='Impossible de charger l’extrait.';open.hidden=true;frame.hidden=true;fallback.hidden=false;}})();
+})();
