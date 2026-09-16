@@ -74,9 +74,6 @@
     return target;
   });
   mergeAssignedProperty('ATLAS_FOCUS',value=>Object.assign(value||{},focusSeed));
-
-  // Keep the same FEATURED array object once catalog.js assigns it; geography
-  // interception below appends only territories missing from the base polygons.
   mergeAssignedProperty('ATLAS_FEATURED',value=>Array.isArray(value)?value:[]);
 
   const nativeFetch=window.fetch.bind(window);
@@ -92,8 +89,6 @@
       const missing=[];
       for(const [id,x] of Object.entries(micro)){
         if(present.has(id)) continue;
-        // Empty geometry is intentional: script.js still registers the country
-        // in byId/list/inspector, while FEATURED makes it a clickable map pin.
         data.push([id,x.code,x.name,x.region,x.lon,x.lat,[]]);
         missing.push(id);
       }
@@ -110,8 +105,6 @@
       return response;
     }
   };
-
-  const GUIDE_VALUE = 29;
 
   function track(name, data = {}) {
     if (window.umami && typeof window.umami.track === 'function') {
@@ -170,8 +163,6 @@
       document.head.append(script);
     }
 
-    // Micro-jurisdiction pins keep their dots but not permanent text labels,
-    // preventing Europe/Caribbean clutter. Hover/click still reveals the name.
     if(document.querySelector('#worldMap')){
       let tries=0;
       const timer=setInterval(()=>{
