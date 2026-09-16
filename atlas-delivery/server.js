@@ -4,6 +4,7 @@ const http = require('http');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
 const PORT = Number(process.env.PORT || 10000);
 const REVOLUT_SECRET_KEY = process.env.REVOLUT_SECRET_KEY || '';
@@ -168,17 +169,18 @@ function orderPaidAndCorrect(order) {
 function decryptGuide() {
   const key = Buffer.from(GUIDE_KEY_HEX, 'hex');
   if (key.length !== 32) throw new Error('guide key invalid');
-  const nonce = Buffer.from('5WaB6tZcTroB+kSy', 'base64');
-  const tag = Buffer.from('ceRnDM//byrrEtKbfk5EYg==', 'base64');
-  const ciphertextB64 = [1,2,3,4].map(n =>
+  const nonce = Buffer.from('cYY54kb1icDJq9gb', 'base64');
+  const tag = Buffer.from('rr0oNhWLn6Gf6a7KhBan+w==', 'base64');
+  const ciphertextB64 = [1,2].map(n =>
     fs.readFileSync(path.join(__dirname, 'payload', `chunk${n}.txt`), 'utf8').trim()
   ).join('');
   const ciphertext = Buffer.from(ciphertextB64, 'base64');
   if (nonce.length !== 12 || tag.length !== 16 || !ciphertext.length) throw new Error('guide payload invalid');
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
-  decipher.setAAD(Buffer.from(PRODUCT_ID, 'utf8'));
+  decipher.setAAD(Buffer.from(PRODUCT_ID + ':gzip', 'utf8'));
   decipher.setAuthTag(tag);
-  const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  const compressed = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  const plain = zlib.gunzipSync(compressed);
   const sha = crypto.createHash('sha256').update(plain).digest('hex');
   if (sha !== '45faec024dec31bd238eb95d502eb68b2445972f7dfc675e894a52d99d92b418') throw new Error('guide integrity mismatch');
   return plain;
