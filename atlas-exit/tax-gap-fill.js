@@ -74,6 +74,8 @@
 
   const fill={
     AFG:mk(20,'tradingEconomicsPIT','Taux personnel maximal',teNote,'Trading Economics · Dec/26'),
+    SDN:mk(15,'tradingEconomicsPIT','Taux personnel maximal','Trading Economics 2026, sourcé auprès de la Sudan Chamber of Taxation : taux marginal supérieur de 15 %.','Trading Economics · Dec/26'),
+    XKX:mk(10,'pwcPIT','PIT · tranche supérieure','PwC Kosovo 2026 : barème progressif de 0 à 10 %.','PwC · revue 7 août 2026'),
     BDI:mk(30,'taxAtlasBurundi','Barème progressif · taux supérieur','Source secondaire 2026 : barème progressif jusqu’à 30 %. À revalider auprès de l’administration avant décision.','TaxAtlas · 2026'),
     BEN:mk(30,'beninCGI2026','ITS · tranche supérieure','Code général des impôts du Bénin 2026, art. 125 : barème progressif jusqu’à 30 %.','CGI Bénin · 2026','current-reference'),
     BFA:mk(25,'burkinaCGI','ITS · salaire · tranche supérieure','Code fiscal burkinabè : impôt sur traitements et salaires jusqu’à 25 %. Les bénéfices d’activité indépendante suivent un autre barème.','DGI Burkina Faso · CGI consulté 2026','current-reference'),
