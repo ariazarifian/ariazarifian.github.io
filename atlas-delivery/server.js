@@ -12,16 +12,24 @@ const REVOLUT_API_VERSION = process.env.REVOLUT_API_VERSION || '2026-03-12';
 const GUIDE_KEY_HEX = process.env.GUIDE_KEY_HEX || '';
 const DELIVERY_SIGNING_SECRET = process.env.DELIVERY_SIGNING_SECRET || '';
 const PUBLIC_SITE_URL = (process.env.PUBLIC_SITE_URL || 'https://atlas-exit-premium.onrender.com').replace(/\/+$/, '');
+const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || 'https://atlas-exit-delivery.onrender.com').replace(/\/+$/, '');
+
+// Keep this stable so existing paid order links continue to unlock the latest edition of the same product.
 const PRODUCT_ID = 'atlas-guide-usa-v1.2';
+const GUIDE_EDITION = '2.0';
 const PRODUCT_PRICE = 2900;
 const PRODUCT_CURRENCY = 'EUR';
+const GUIDE_SHA256 = 'e36e055c9b8aae04c4f08f8bc2f1b5eb030b732c3ed0200bb68599c8f54c32f7';
+const GUIDE_NONCE_B64 = 'imeFcFExmNbScgfw';
+const GUIDE_TAG_B64 = 'r7bYk8kJsHdI7biKrX4gYg==';
+
 const ALLOWED_ORIGINS = new Set([
   'https://atlas-exit-premium.onrender.com',
   'https://atlas-expat.fr',
   'https://www.atlas-expat.fr'
 ]);
 
-function json(res, status, obj, origin) {
+function json(res, status, obj, origin = '') {
   const body = JSON.stringify(obj);
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -30,7 +38,8 @@ function json(res, status, obj, origin) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
-    'Cache-Control': 'no-store'
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff'
   });
   res.end(body);
 }
@@ -47,6 +56,10 @@ function html(res, status, body) {
   res.end(body);
 }
 
+function validEmail(email) {
+  return typeof email === 'string' && email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
 function safeEqualHex(a, b) {
   if (!/^[0-9a-f]{64}$/i.test(a || '') || !/^[0-9a-f]{64}$/i.test(b || '')) return false;
   return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
@@ -55,11 +68,6 @@ function safeEqualHex(a, b) {
 function signOrder(orderId) {
   if (!DELIVERY_SIGNING_SECRET) throw new Error('delivery secret missing');
   return crypto.createHmac('sha256', DELIVERY_SIGNING_SECRET).update(orderId).digest('hex');
-}
-
-function validEmail(email) {
-  if (typeof email !== 'string' || email.length > 254) return false;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
 async function parseJsonBody(req, maxBytes = 20000) {
@@ -97,7 +105,8 @@ async function revolutFetch(url, opts = {}) {
   const r = await fetch(url, opts);
   const text = await r.text();
   let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+  try { data = text ? JSON.parse(text) : null; }
+  catch { data = { raw: text }; }
   if (!r.ok) {
     const e = new Error(`Revolut ${r.status}`);
     e.status = r.status;
@@ -108,41 +117,34 @@ async function revolutFetch(url, opts = {}) {
 }
 
 async function createCheckout(email) {
-  const createPayload = {
-    amount: PRODUCT_PRICE,
-    currency: PRODUCT_CURRENCY,
-    description: 'Atlas Exit — Guide États-Unis — Édition 1.2',
-    customer: { email },
-    capture_mode: 'automatic',
-    metadata: { product: PRODUCT_ID },
-    redirect_url: `${PUBLIC_SITE_URL}/offres.html?countries=USA`
-  };
-
   const order = await revolutFetch('https://merchant.revolut.com/api/orders', {
     method: 'POST',
     headers: revolutHeaders(true),
-    body: JSON.stringify(createPayload)
+    body: JSON.stringify({
+      amount: PRODUCT_PRICE,
+      currency: PRODUCT_CURRENCY,
+      description: 'Atlas Exit - Guide Etats-Unis - Edition 2.0',
+      customer: { email },
+      capture_mode: 'automatic',
+      metadata: { product: PRODUCT_ID, edition: GUIDE_EDITION },
+      redirect_url: `${PUBLIC_SITE_URL}/offres.html?countries=USA`
+    })
   });
 
   const sig = signOrder(order.id);
-  const deliveryUrl = `${process.env.PUBLIC_API_URL || ''}/complete?order=${encodeURIComponent(order.id)}&sig=${sig}`;
-  if (!/^https:\/\/.+/.test(deliveryUrl)) throw new Error('PUBLIC_API_URL missing');
-
-  const patchPayload = {
-    redirect_url: deliveryUrl,
-    merchant_order_data: {
-      reference: `ATLAS-USA-${order.id.slice(0, 8)}`,
-      url: deliveryUrl
-    },
-    metadata: {
-      product: PRODUCT_ID
-    }
-  };
+  const deliveryUrl = `${PUBLIC_API_URL}/complete?order=${encodeURIComponent(order.id)}&sig=${sig}`;
 
   const updated = await revolutFetch(`https://merchant.revolut.com/api/orders/${encodeURIComponent(order.id)}`, {
     method: 'PATCH',
     headers: revolutHeaders(true),
-    body: JSON.stringify(patchPayload)
+    body: JSON.stringify({
+      redirect_url: deliveryUrl,
+      merchant_order_data: {
+        reference: `ATLAS-USA-${order.id.slice(0, 8)}`,
+        url: deliveryUrl
+      },
+      metadata: { product: PRODUCT_ID, edition: GUIDE_EDITION }
+    })
   });
 
   return {
@@ -169,66 +171,35 @@ function orderPaidAndCorrect(order) {
 function decryptGuide() {
   const key = Buffer.from(GUIDE_KEY_HEX, 'hex');
   if (key.length !== 32) throw new Error('guide key invalid');
-  const nonce = Buffer.from('cYY54kb1icDJq9gb', 'base64');
-  const tag = Buffer.from('rr0oNhWLn6Gf6a7KhBan+w==', 'base64');
-  const ciphertextB64 = [1,2].map(n =>
-    fs.readFileSync(path.join(__dirname, 'payload', `chunk${n}.txt`), 'utf8').trim()
-  ).join('');
-  const ciphertext = Buffer.from(ciphertextB64, 'base64');
+
+  const nonce = Buffer.from(GUIDE_NONCE_B64, 'base64');
+  const tag = Buffer.from(GUIDE_TAG_B64, 'base64');
+  const b64 = [1, 2].map(n => fs.readFileSync(path.join(__dirname, 'payload', `chunk${n}.txt`), 'utf8').trim()).join('');
+  const ciphertext = Buffer.from(b64, 'base64');
   if (nonce.length !== 12 || tag.length !== 16 || !ciphertext.length) throw new Error('guide payload invalid');
+
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+  // Product ID deliberately stays stable across guide editions so historical paid orders remain valid.
   decipher.setAAD(Buffer.from(PRODUCT_ID + ':gzip', 'utf8'));
   decipher.setAuthTag(tag);
   const compressed = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  const plain = zlib.gunzipSync(compressed);
-  const sha = crypto.createHash('sha256').update(plain).digest('hex');
-  if (sha !== '45faec024dec31bd238eb95d502eb68b2445972f7dfc675e894a52d99d92b418') throw new Error('guide integrity mismatch');
-  return plain;
+  const pdf = zlib.gunzipSync(compressed);
+  const actual = crypto.createHash('sha256').update(pdf).digest('hex');
+  if (actual !== GUIDE_SHA256) throw new Error('guide integrity mismatch');
+  return pdf;
 }
 
 function completePage(orderId, sig) {
-  const qOrder = JSON.stringify(orderId);
-  const qSig = JSON.stringify(sig);
-  return `<!doctype html>
-<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Paiement confirmé — Atlas Exit</title>
-<style>
-:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#151515;background:#f7f7f4}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}
-.card{width:min(620px,100%);background:#fff;border:1px solid #deded8;border-radius:22px;padding:34px;box-shadow:0 18px 60px rgba(0,0,0,.07)}
-.brand{font-weight:800;letter-spacing:-.04em;font-size:18px}.brand span{font-weight:400}
-.badge{display:inline-block;margin-top:28px;padding:8px 12px;border-radius:999px;background:#eef6ec;font-size:13px;font-weight:700}
-h1{font-size:clamp(32px,6vw,54px);line-height:.98;letter-spacing:-.055em;margin:18px 0}
-p{font-size:17px;line-height:1.55;color:#555}
-a.button{display:inline-flex;margin-top:16px;background:#161616;color:#fff;text-decoration:none;border-radius:12px;padding:15px 18px;font-weight:750}
-.small{font-size:13px;color:#777;margin-top:20px}#status{min-height:26px}
-</style></head>
-<body><main class="card">
-<div class="brand">ATLAS<span>EXIT</span></div>
-<div class="badge">PAIEMENT REÇU</div>
-<h1>Votre guide est prêt.</h1>
-<p id="status">Vérification du paiement auprès de Revolut…</p>
-<div id="action"></div>
-<p class="small">Le téléchargement n’est débloqué qu’après confirmation serveur du paiement. Gardez cette page jusqu’à la fin du téléchargement.</p>
-</main>
-<script>
-const order=${qOrder}, sig=${qSig};
-const statusEl=document.getElementById('status'), action=document.getElementById('action');
-async function check(){
-  try{
-    const r=await fetch('/status?order='+encodeURIComponent(order)+'&sig='+encodeURIComponent(sig),{cache:'no-store'});
-    const d=await r.json();
-    if(d.paid){
-      statusEl.textContent='Paiement confirmé. Le PDF complet est disponible immédiatement.';
-      action.innerHTML='<a class="button" href="/download?order='+encodeURIComponent(order)+'&sig='+encodeURIComponent(sig)+'">Télécharger le guide PDF ↓</a>';
-      return true;
-    }
-    statusEl.textContent='Paiement en cours de finalisation…';
-  }catch(e){statusEl.textContent='Vérification momentanément indisponible. Nouvelle tentative…';}
-  return false;
-}
-(async()=>{for(let i=0;i<12;i++){if(await check())return;await new Promise(r=>setTimeout(r,2500));}
-statusEl.textContent='Le paiement a été reçu mais sa confirmation prend plus de temps que prévu. Rechargez cette page dans quelques instants.';})();
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Votre guide est prêt - Atlas Exit</title><style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f6f6f3;color:#171717}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.card{width:min(650px,100%);background:#fff;border:1px solid #dddcd6;border-radius:22px;padding:36px;box-shadow:0 20px 70px rgba(0,0,0,.06)}
+.brand{font-weight:850;letter-spacing:-.04em}.brand span{font-weight:400}.badge{display:inline-block;margin-top:24px;background:#edf4ef;color:#234238;border-radius:999px;padding:7px 10px;font-weight:750;font-size:12px}
+h1{font-size:clamp(34px,6vw,56px);line-height:1;letter-spacing:-.05em;margin:18px 0}p{line-height:1.55;color:#555}a{display:inline-block;margin-top:12px;background:#172e30;color:#fff;text-decoration:none;padding:14px 17px;border-radius:11px;font-weight:800}.small{font-size:13px;color:#777}
+</style></head><body><main class="card"><div class="brand">ATLAS<span>EXIT</span></div><div class="badge">PAIEMENT REÇU</div><h1>Votre guide est prêt.</h1><p id="s">Vérification du paiement auprès de Revolut...</p><div id="a"></div><p class="small">Édition 2.0 - 53 pages. Le téléchargement est débloqué uniquement après confirmation serveur du paiement.</p></main><script>
+const order=${JSON.stringify(orderId)}, sig=${JSON.stringify(sig)}, s=document.getElementById('s'), a=document.getElementById('a');
+async function go(){try{const r=await fetch('/status?order='+encodeURIComponent(order)+'&sig='+encodeURIComponent(sig),{cache:'no-store'});const d=await r.json();if(d.paid){s.textContent='Paiement confirmé. Votre guide complet est disponible immédiatement.';a.innerHTML='<a href="/download?order='+encodeURIComponent(order)+'&sig='+encodeURIComponent(sig)+'">Télécharger le guide PDF ↓</a>';return true;}s.textContent='Paiement en cours de finalisation...';}catch{ s.textContent='Vérification momentanément indisponible. Nouvelle tentative...'; }return false;}
+(async()=>{for(let i=0;i<15;i++){if(await go())return;await new Promise(r=>setTimeout(r,2000));}s.textContent='La confirmation prend plus de temps que prévu. Rechargez cette page dans quelques instants.';})();
 </script></body></html>`;
 }
 
@@ -243,7 +214,8 @@ const server = http.createServer(async (req, res) => {
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
       res.setHeader('Vary', 'Origin');
     }
-    res.writeHead(204); return res.end();
+    res.writeHead(204);
+    return res.end();
   }
 
   if (req.method === 'GET' && url.pathname === '/health') {
@@ -251,7 +223,9 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       revolutConfigured: !!REVOLUT_SECRET_KEY && REVOLUT_SECRET_KEY !== 'NEEDS_CONFIGURATION',
       guideConfigured: /^[0-9a-f]{64}$/i.test(GUIDE_KEY_HEX),
-      product: PRODUCT_ID
+      product: PRODUCT_ID,
+      edition: GUIDE_EDITION,
+      guideSha256: GUIDE_SHA256
     }, origin);
   }
 
@@ -265,18 +239,19 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { checkout_url: created.checkoutUrl }, origin);
     } catch (e) {
       console.error('checkout_error', e.message, e.status || '', e.data || '');
-      const code = e.message === 'REVOLUT_NOT_CONFIGURED' ? 503 : 502;
-      return json(res, code, { error: e.message === 'REVOLUT_NOT_CONFIGURED' ? 'payment_temporarily_unavailable' : 'checkout_failed' }, origin);
+      return json(res, e.message === 'REVOLUT_NOT_CONFIGURED' ? 503 : 502, {
+        error: e.message === 'REVOLUT_NOT_CONFIGURED' ? 'payment_temporarily_unavailable' : 'checkout_failed'
+      }, origin);
     }
   }
 
   if (req.method === 'GET' && url.pathname === '/complete') {
-    const order = url.searchParams.get('order') || '';
+    const orderId = url.searchParams.get('order') || '';
     const sig = url.searchParams.get('sig') || '';
     let expected = '';
-    try { expected = signOrder(order); } catch {}
+    try { expected = signOrder(orderId); } catch {}
     if (!safeEqualHex(sig, expected)) return html(res, 403, '<h1>Lien de livraison invalide.</h1>');
-    return html(res, 200, completePage(order, sig));
+    return html(res, 200, completePage(orderId, sig));
   }
 
   if (req.method === 'GET' && url.pathname === '/status') {
@@ -306,7 +281,7 @@ const server = http.createServer(async (req, res) => {
       const pdf = decryptGuide();
       res.writeHead(200, {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': 'attachment; filename="Atlas-Exit-Guide-Etats-Unis-2026.pdf"',
+        'Content-Disposition': 'attachment; filename="Atlas-Exit-Guide-Etats-Unis-Edition-2.0.pdf"',
         'Content-Length': pdf.length,
         'Cache-Control': 'private, no-store, max-age=0',
         'X-Content-Type-Options': 'nosniff'
@@ -314,7 +289,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(pdf);
     } catch (e) {
       console.error('download_error', e.message);
-      return html(res, 502, '<h1>Livraison momentanément indisponible.</h1><p>Le paiement n’est pas perdu. Réessayez dans quelques instants.</p>');
+      return html(res, 502, '<h1>Livraison momentanément indisponible.</h1><p>Le paiement n est pas perdu. Réessayez dans quelques instants.</p>');
     }
   }
 
@@ -324,8 +299,7 @@ const server = http.createServer(async (req, res) => {
 async function probeRevolutAuth() {
   try {
     await revolutFetch('https://merchant.revolut.com/api/orders?limit=1', {
-      method: 'GET',
-      headers: revolutHeaders(false)
+      method: 'GET', headers: revolutHeaders(false)
     });
     console.log('Revolut Merchant API auth probe: OK');
   } catch (e) {
@@ -335,6 +309,6 @@ async function probeRevolutAuth() {
 }
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Atlas delivery listening on ${PORT}`);
+  console.log(`Atlas delivery listening on ${PORT} - guide edition ${GUIDE_EDITION}`);
   probeRevolutAuth();
 });
