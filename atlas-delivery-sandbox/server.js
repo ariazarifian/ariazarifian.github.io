@@ -2,16 +2,12 @@
 
 const http = require('http');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
-const zlib = require('zlib');
 
 const PORT = Number(process.env.PORT || 10000);
 const REVOLUT_SECRET_KEY = process.env.REVOLUT_SECRET_KEY || '';
 const REVOLUT_BASE_URL = (process.env.REVOLUT_BASE_URL || 'https://sandbox-merchant.revolut.com').replace(/\/+$/, '');
 const REVOLUT_API_VERSION = process.env.REVOLUT_API_VERSION || '2026-04-20';
-const GUIDE_KEY_HEX = process.env.GUIDE_KEY_HEX || '';
-const DELIVERY_SIGNING_SECRET = process.env.DELIVERY_SIGNING_SECRET || '';
+const DELIVERY_SIGNING_SECRET = 'atlas-sandbox-delivery-signing-v1';
 const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || 'https://atlas-exit-delivery-sandbox.onrender.com').replace(/\/+$/, '');
 const PRODUCT_ID = 'atlas-guide-usa-v1.2-sandbox';
 const PRODUCT_PRICE = 2900;
@@ -50,7 +46,6 @@ function safeEqualHex(a, b) {
 }
 
 function signOrder(orderId) {
-  if (!DELIVERY_SIGNING_SECRET) throw new Error('delivery secret missing');
   return crypto.createHmac('sha256', DELIVERY_SIGNING_SECRET).update(orderId).digest('hex');
 }
 
@@ -145,21 +140,8 @@ function paidAndCorrect(order) {
     && order && order.metadata && order.metadata.product === PRODUCT_ID;
 }
 
-function decryptGuide() {
-  const key = Buffer.from(GUIDE_KEY_HEX, 'hex');
-  if (key.length !== 32) throw new Error('guide key invalid');
-  const nonce = Buffer.from('FpvjwLQPTlBVGmDK', 'base64');
-  const tag = Buffer.from('9hxBylbWj1ZvS6ShB20f0Q==', 'base64');
-  const b64 = [1,2].map(n => fs.readFileSync(path.join(__dirname, 'payload', `chunk${n}.txt`), 'utf8').trim()).join('');
-  const ciphertext = Buffer.from(b64, 'base64');
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
-  decipher.setAAD(Buffer.from(PRODUCT_ID + ':gzip', 'utf8'));
-  decipher.setAuthTag(tag);
-  const compressed = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  const plain = zlib.gunzipSync(compressed);
-  const actual = crypto.createHash('sha256').update(plain).digest('hex');
-  if (actual !== '45faec024dec31bd238eb95d502eb68b2445972f7dfc675e894a52d99d92b418') throw new Error('guide integrity mismatch');
-  return plain;
+function sandboxPdf() {
+  return Buffer.from('JVBERi0xLjMKJZOMi54gUmVwb3J0TGFiIEdlbmVyYXRlZCBQREYgZG9jdW1lbnQgaHR0cDovL3d3dy5yZXBvcnRsYWIuY29tCjEgMCBvYmoKPDwKL0YxIDIgMCBSCj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9CYXNlRm9udCAvSGVsdmV0aWNhIC9FbmNvZGluZyAvV2luQW5zaUVuY29kaW5nIC9OYW1lIC9GMSAvU3VidHlwZSAvVHlwZTEgL1R5cGUgL0ZvbnQKPj4KZW5kb2JqCjMgMCBvYmoKPDwKL0YyIDQgMCBSCj4+CmVuZG9iago0IDAgb2JqCjw8Ci9CYXNlRm9udCAvSGVsdmV0aWNhLUJvbGQgL0VuY29kaW5nIC9XaW5BbnNpRW5jb2RpbmcgL05hbWUgL0YyIC9TdWJ0eXBlIC9UeXBlMSAvVHlwZSAvRm9udAo+PgplbmRvYmoKNSAwIG9iago8PAovQ29udGVudHMgOSAwIFIKL01lZGlhQm94IFsgMCAwIDU5NS4yNzU2IDg0MS44ODk4IF0KL1BhcmVudCA4IDAgUgovUmVzb3VyY2VzIDw8Ci9Gb250IDEgMCBSCj4+Ci9Sb3RhdGUgMAovVHJhbnMgPDwKPj4KL1R5cGUgL1BhZ2UKPj4KZW5kb2JqCjYgMCBvYmoKPDwKL1BhZ2VNb2RlIC9Vc2VOb25lIC9QYWdlcyA4IDAgUiAvVHlwZSAvQ2F0YWxvZwo+PgplbmRvYmoKNyAwIG9iago8PAovQXV0aG9yIChhbm9ueW1vdXMpIC9DcmVhdGlvbkRhdGUgKEQ6MjAyNjA5MTYxMjQ2NTIrMDAnMDAnKSAvQ3JlYXRvciAoUmVwb3J0TGFiIFBERiBMaWJyYXJ5IC0gd3d3LnJlcG9ydGxhYi5jb20pIC9LZXl3b3JkcyAoKSAvTW9kRGF0ZSAoRDoyMDI2MDkxNjEyNDY1MiswMCcwMCcpIC9Qcm9kdWNlciAoUmVwb3J0TGFiIFBERiBMaWJyYXJ5IC0gd3d3LnJlcG9ydGxhYi5jb20pIAovU3ViamVjdCAodW5zcGVjaWZpZWQpIC9UaXRsZSAodW50aXRsZWQpIC9UcmFwcGVkIC9GYWxzZQo+PgplbmRvYmoKOCAwIG9iago8PAovQ291bnQgMSAvS2lkcyBbIDUgMCBSIF0gL1R5cGUgL1BhZ2VzCj4+CmVuZG9iago5IDAgb2JqCjw8Ci9GaWx0ZXIgWyAvQVNDSUk4NURlY29kZSAvRmxhdGVEZWNvZGUgXSAvTGVuZ3RoIDM0Ngo+PgpzdHJlYW0KR2FwUWgwRT1GLDBVXEgzVFxwTllUXlFLaz90Yz5JUCw7VyNVMV4yM2loUEVNXz9DVzRLSVNpOTBNakhQNSxNUWRYNEphO0FffV5qX1s3Sk8qSUhRQzc/OzdqR2dsMXwxYUo1Y1R+a2A+TThye09vXV1GLHNMR0MlME1IVT4sa3FXNTVrJCR+PmVuZHN0cmVhbQplbmRvYmoKeHJlZgowIDEwCjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDA3MyAwMDAwMCBuIAowMDAwMDAwMTA0IDAwMDAwIG4gCjAwMDAwMDAyMTEgMDAwMDAgbiAKMDAwMDAwMDI0MiAwMDAwMCBuIAowMDAwMDAwMzU1IDAwMDAwIG4gCjAwMDAwMDA1MzggMDAwMDAgbiAKMDAwMDAwMDYwNiAwMDAwMCBuIAowMDAwMDAwOTAyIDAwMDAwIG4gCjAwMDAwMDA5NjEgMDAwMDAgbiAKdHJhaWxlcgo8PAovSUQgCls8YmY3ZTM2ZDk3OTQ2YjVmYjRkOWEzOTk4YjI0MTFhMjQ+PGJmN2UzNmQ5Nzk0NmI1ZmI0ZDlhMzk5OGIyNDExYTI0Pl0KL0luZm8gNyAwIFIKL1Jvb3QgNiAwIFIKL1NpemUgMTAKPj4Kc3RhcnR4cmVmCjEzOTYKJSVFT0YK', 'base64');
 }
 
 function testPage() {
@@ -182,7 +164,7 @@ button{margin-top:12px;border:0;border-radius:11px;background:#171717;color:#fff
 <p>Cette page crée une commande dans l'environnement Sandbox de Revolut. Aucun argent réel ne peut être débité.</p>
 <form id="f"><label for="email">E-mail de test</label><input id="email" type="email" required placeholder="test@example.com"><button>Créer le faux achat à 29 € →</button></form>
 <p id="status" class="small"></p>
-<p class="small">Après redirection vers Revolut Sandbox, utilisez une carte de test officielle. Une fois le paiement simulé accepté, Revolut vous renverra ici et Atlas devra débloquer le vrai PDF.</p>
+<p class="small">Après redirection vers Revolut Sandbox, utilisez une carte de test officielle. Une fois le paiement simulé accepté, Revolut vous renverra ici et Atlas devra débloquer le PDF de test.</p>
 </main><script>
 document.getElementById('f').addEventListener('submit', async e => {
   e.preventDefault(); const s=document.getElementById('status'); s.textContent='Création de la commande Sandbox…';
@@ -207,7 +189,7 @@ a{display:inline-block;margin-top:12px;background:#171717;color:#fff;text-decora
 <script>
 const order=${JSON.stringify(orderId)}, sig=${JSON.stringify(sig)}, s=document.getElementById('s'), a=document.getElementById('a');
 async function go(){const r=await fetch('/status?order='+encodeURIComponent(order)+'&sig='+encodeURIComponent(sig),{cache:'no-store'});const d=await r.json();
-if(d.paid){s.textContent='Paiement Sandbox confirmé. Le vrai PDF est bien débloqué par Atlas.';a.innerHTML='<a href="/download?order='+encodeURIComponent(order)+'&sig='+encodeURIComponent(sig)+'">Télécharger le guide PDF ↓</a>';return true;}
+if(d.paid){s.textContent='Paiement Sandbox confirmé. Le PDF de test est bien débloqué par Atlas.';a.innerHTML='<a href="/download?order='+encodeURIComponent(order)+'&sig='+encodeURIComponent(sig)+'">Télécharger le PDF de test ↓</a>';return true;}
 s.textContent='État Revolut : '+(d.state||'en attente')+'…';return false;}
 (async()=>{for(let i=0;i<15;i++){if(await go())return;await new Promise(r=>setTimeout(r,2000));}s.textContent='La confirmation prend plus de temps. Rechargez la page.';})();
 </script></main></body></html>`;
@@ -232,7 +214,6 @@ const server = http.createServer(async (req, res) => {
     ok:true,
     sandbox: REVOLUT_BASE_URL.includes('sandbox-merchant.revolut.com'),
     revolutConfigured: !!REVOLUT_SECRET_KEY && REVOLUT_SECRET_KEY !== 'NEEDS_SANDBOX_KEY',
-    guideConfigured: /^[0-9a-f]{64}$/i.test(GUIDE_KEY_HEX),
     product: PRODUCT_ID
   });
   if (req.method === 'GET' && url.pathname === '/waiting') return sendHtml(res, 200, '<h1>Retour Sandbox en préparation…</h1>');
@@ -266,8 +247,8 @@ const server = http.createServer(async (req, res) => {
     try {
       const order=await retrieveOrder(orderId);
       if(!paidAndCorrect(order)) return sendHtml(res,402,'<h1>Faux paiement non confirmé.</h1>');
-      const pdf=decryptGuide();
-      res.writeHead(200,{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="Atlas-Exit-Guide-Etats-Unis-2026.pdf"','Content-Length':pdf.length,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'});
+      const pdf=sandboxPdf();
+      res.writeHead(200,{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="Atlas-Exit-Sandbox-Test.pdf"','Content-Length':pdf.length,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'});
       return res.end(pdf);
     } catch(e) {console.error('sandbox_download_error',e.message);return sendHtml(res,502,'<h1>Livraison Sandbox indisponible.</h1>');}
   }
