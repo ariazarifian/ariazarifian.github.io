@@ -321,6 +321,20 @@ const server = http.createServer(async (req, res) => {
   return json(res, 404, { error: 'not_found' }, origin);
 });
 
+async function probeRevolutAuth() {
+  try {
+    await revolutFetch('https://merchant.revolut.com/api/orders?limit=1', {
+      method: 'GET',
+      headers: revolutHeaders(false)
+    });
+    console.log('Revolut Merchant API auth probe: OK');
+  } catch (e) {
+    const status = e && e.status ? ` HTTP ${e.status}` : '';
+    console.error(`Revolut Merchant API auth probe: FAILED${status}`);
+  }
+}
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Atlas delivery listening on ${PORT}`);
+  probeRevolutAuth();
 });
