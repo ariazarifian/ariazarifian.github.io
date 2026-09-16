@@ -94,12 +94,37 @@
       stability:WB[id]?.stability??previous.stability??null
     };
   }
-  for(const id of new Set([...Object.keys(rates),...Object.keys(special),'ROU'])) rebuild(id);
+
+  const coverageIds=[...new Set([...Object.keys(rates),...Object.keys(special),'ROU'])];
+  for(const id of coverageIds) rebuild(id);
+
+  // script.js keeps a reference to ATLAS_CATALOG, but its country objects may
+  // already have been materialised if geography loaded before this file.
+  // Patch those same objects in place so byId/list/tooltip all see the new data.
+  function patchExplorer(){
+    const explorer=window.AtlasExplorer;
+    const countries=explorer?.getCountries?.();
+    if(!countries?.length) return false;
+    for(const country of countries){
+      const next=CAT[country.id];
+      if(!next) continue;
+      const path=country.path,bounds=country.bounds,parent=country.parent,code=country.code,name=country.name,region=country.region,lon=country.lon,lat=country.lat;
+      Object.assign(country,next,{path,bounds,parent,code,name,region,lon,lat,documented:!!next.src||next.stability!=null});
+    }
+    return true;
+  }
+  if(!patchExplorer()){
+    let attempts=0;
+    const timer=setInterval(()=>{
+      attempts++;
+      if(patchExplorer()||attempts>100) clearInterval(timer);
+    },50);
+  }
 
   window.ATLAS_WORLD_EXPANSION={
     source:'PwC Worldwide Tax Summaries',
     sourceUrl:S.pwcPIT,
-    coverageIds:[...new Set([...Object.keys(rates),...Object.keys(special),'ROU'])],
+    coverageIds,
     loadedAt:'2026-09-16'
   };
 })();
