@@ -42,14 +42,16 @@ jobs:
 
           node --check atlas-exit/atlas-events.js
           node --check atlas-exit/parcours-usa.js
-          grep -q 'free-guide/usa' atlas-exit/offres.html
-          grep -q 'parcours-usa.html' atlas-exit/offres.html
-          grep -q 'guide_download_click' atlas-exit/atlas-events.js
-          grep -q 'Guide États-Unis gratuit' atlas-exit/s-expatrier-etats-unis.html
-          grep -q 'Guide États-Unis gratuit' atlas-exit/visa-e2-etats-unis-francais.html
-          grep -q 'Guide États-Unis gratuit' atlas-exit/immigration-usa.html
-          if grep -q '29 €' atlas-exit/accompagnement.html; then exit 1; fi
-          if grep -q 'Cap USA' atlas-exit/accompagnement.html; then exit 1; fi
+
+          test "$(git hash-object atlas-exit/offres.html)" = da209bc39deef16227b0e981ea5ca6109e6f7f7a
+          test "$(git hash-object atlas-exit/atlas-events.js)" = 6e0c520c330faa278bcc76828b2918ec02f6fbcf
+          test "$(git hash-object atlas-exit/parcours-usa.html)" = 864062296c01843041ea426772833005bb28ccc2
+          test "$(git hash-object atlas-exit/parcours-usa.js)" = ab2b2957ead438ec44141fab2e721adc16f08878
+          test "$(git hash-object atlas-exit/s-expatrier-etats-unis.html)" = 0a746572e01078aa74b11ad41d83b9e18a7aa0ab
+          test "$(git hash-object atlas-exit/visa-e2-etats-unis-francais.html)" = ffa9e7c7d0cecb4d2d03ad6428e4891dc09d1d1c
+          test "$(git hash-object atlas-exit/immigration-usa.html)" = c424cfaaa3ba8a71d05b80eb089b2329fa1d52fd
+          test "$(git hash-object atlas-exit/accompagnement.html)" = 7eb7fc66d753219d9cf0235dda77039bb21bec3e
+          echo 'exact reviewed frontend blobs PASS'
 
           git add "${files[@]}"
           staged=$(git diff --cached --name-only)
