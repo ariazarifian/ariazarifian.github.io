@@ -24,18 +24,17 @@ jobs:
           curl --retry 3 --retry-delay 2 -fsS "$site/accompagnement.html" -o /tmp/accompagnement.html
           curl --retry 3 --retry-delay 2 -fsS "$site/atlas-events.js" -o /tmp/events.js
 
+          test "$(git hash-object /tmp/offres.html)" = da209bc39deef16227b0e981ea5ca6109e6f7f7a
+          test "$(git hash-object /tmp/events.js)" = 6e0c520c330faa278bcc76828b2918ec02f6fbcf
+          test "$(git hash-object /tmp/parcours.html)" = 864062296c01843041ea426772833005bb28ccc2
+          test "$(git hash-object /tmp/parcours.js)" = ab2b2957ead438ec44141fab2e721adc16f08878
+          test "$(git hash-object /tmp/expat.html)" = 0a746572e01078aa74b11ad41d83b9e18a7aa0ab
+          test "$(git hash-object /tmp/e2.html)" = ffa9e7c7d0cecb4d2d03ad6428e4891dc09d1d1c
+          test "$(git hash-object /tmp/immigration.html)" = c424cfaaa3ba8a71d05b80eb089b2329fa1d52fd
+          test "$(git hash-object /tmp/accompagnement.html)" = 7eb7fc66d753219d9cf0235dda77039bb21bec3e
           grep -q 'https://atlas-exit-delivery.onrender.com/free-guide/usa' /tmp/offres.html
           grep -q 'parcours-usa.html' /tmp/offres.html
-          grep -q 'Guide États-Unis gratuit' /tmp/expat.html
-          grep -q 'Guide États-Unis gratuit' /tmp/e2.html
-          grep -q 'parcours-usa.html' /tmp/immigration.html
-          if grep -q '29 €' /tmp/accompagnement.html; then exit 1; fi
-          if grep -q 'Cap USA' /tmp/accompagnement.html; then exit 1; fi
-          test "$(grep -o 'data-step=' /tmp/parcours.html | wc -l)" -eq 8
-
-          test "$(git hash-object /tmp/parcours.js)" = ab2b2957ead438ec44141fab2e721adc16f08878
-          test "$(git hash-object /tmp/events.js)" = 6e0c520c330faa278bcc76828b2918ec02f6fbcf
-          echo 'live reviewed JS identity PASS'
+          echo 'live reviewed frontend identity + handoff PASS'
 
           node <<'NODE'
           const fs=require('fs'); const vm=require('vm');
