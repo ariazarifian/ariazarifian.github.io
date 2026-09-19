@@ -1,0 +1,19 @@
+{
+  "edition": "15.0",
+  "source_pdf_bytes": 8011150,
+  "source_pdf_sha256": "825bd8b24eb22f9ff03f67016bc414f054334b243a02d98a071c25b392c3543f",
+  "gzip_bytes": 7470736,
+  "ciphertext_bytes": 7470736,
+  "ciphertext_sha256": "2177403057898d6ec99c2cbb085494de3063351c6bfa0b8d098a5a27f8825450",
+  "nonce_b64": "Sq2tNt+FRcT5P8tA",
+  "tag_b64": "FnBHjMbnkNDQWUx8eEDrFw==",
+  "aad": "atlas-guide-usa-free-v15:gzip",
+  "key_source": "FREE_GUIDE_KEY_HEX Render environment only",
+  "key_committed": false,
+  "base64_chars": 9960984,
+  "chunk_count": 2,
+  "chunk_chars_each": [
+    4980492,
+    4980492
+  ]
+}
