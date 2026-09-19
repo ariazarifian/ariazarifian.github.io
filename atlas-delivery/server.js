@@ -206,7 +206,7 @@ function decryptFreeGuide() {
   const payloadDir = path.join(__dirname, 'payload-free-v15');
   const files = fs.readdirSync(payloadDir)
     .filter(name => /^chunk\d+\.txt$/.test(name))
-    .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\\d+/)[0]));
+    .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
   if (!files.length) throw new Error('free guide payload missing');
   const b64 = files.map(name => fs.readFileSync(path.join(payloadDir, name), 'utf8').trim()).join('');
   const ciphertext = Buffer.from(b64, 'base64');
