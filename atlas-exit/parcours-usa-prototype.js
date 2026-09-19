@@ -1,73 +1,196 @@
 (() => {
-  const STORAGE_KEY = 'atlas_usa_roadmap_v1';
+  'use strict';
+
+  const STORAGE_KEY = 'atlas_usa_route_v2';
+  const form = document.getElementById('routeForm');
+  const profile = document.getElementById('profile');
+  const horizon = document.getElementById('horizon');
+  const city = document.getElementById('city');
+  const priority = document.getElementById('priority');
+  const resetButton = document.getElementById('resetRoute');
+  const routeSummary = document.getElementById('routeSummary');
+  const routeHeadline = document.getElementById('routeHeadline');
+  const routeMeta = document.getElementById('routeMeta');
+  const routeFirstAction = document.getElementById('routeFirstAction');
+  const routeContext = document.getElementById('routeContext');
   const boxes = Array.from(document.querySelectorAll('[data-step]'));
+  const cards = Array.from(document.querySelectorAll('[data-card-step]'));
   const doneCount = document.getElementById('doneCount');
   const progressBar = document.getElementById('progressBar');
   const progressText = document.getElementById('progressText');
-  const intentNotice = document.getElementById('intentNotice');
 
-  function track(name, data = {}) {
-    if (window.AtlasAnalytics && typeof window.AtlasAnalytics.track === 'function') {
-      window.AtlasAnalytics.track(name, data);
-    } else if (window.umami && typeof window.umami.track === 'function') {
-      window.umami.track(name, data);
+  const profileCopy = {
+    job: {
+      label: 'emploi',
+      first: 'Vérifier en premier la base d’immigration et le droit au travail liés au poste visé ; l’offre d’emploi et le statut doivent être compatibles avant d’organiser le reste.',
+      focus: ['immigration', 'documents', 'entry', 'identity']
+    },
+    business: {
+      label: 'activité / entreprise',
+      first: 'Séparer immédiatement deux sujets : créer ou exploiter une société et avoir le droit personnel de travailler aux États-Unis. L’un ne crée pas automatiquement l’autre.',
+      focus: ['immigration', 'documents', 'identity', 'compliance']
+    },
+    study: {
+      label: 'études / échange',
+      first: 'Partir du programme et du statut d’études admissible, puis construire le calendrier documentaire et financier autour de cette contrainte.',
+      focus: ['immigration', 'documents', 'landing', 'entry']
+    },
+    family: {
+      label: 'famille / installation durable',
+      first: 'Identifier la base familiale exacte et les preuves associées avant de bâtir le calendrier de départ et les engagements irréversibles.',
+      focus: ['immigration', 'documents', 'france', 'entry']
     }
+  };
+
+  const horizonCopy = {
+    '0-3': 'Horizon court : les dépendances bloquantes et le logement temporaire passent avant les optimisations secondaires.',
+    '3-6': 'Horizon intermédiaire : le dossier, le budget d’arrivée et les décisions France→USA peuvent être séquencés proprement.',
+    '6-12': 'Horizon confortable : privilégiez les preuves, le calendrier et les décisions réversibles avant les engagements coûteux.',
+    '12+': 'Horizon long : utilisez le temps pour renforcer l’éligibilité, les preuves et le budget plutôt que pour figer trop tôt les choix locaux.'
+  };
+
+  const priorityFocus = {
+    immigration: ['immigration', 'documents', 'entry'],
+    housing: ['landing', 'settle'],
+    budget: ['france', 'landing'],
+    tax: ['france', 'compliance'],
+    business: ['immigration', 'identity', 'compliance']
+  };
+
+  function blankState() {
+    return { answers: null, steps: {} };
   }
 
   function readState() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : {};
-      return parsed && typeof parsed === 'object' ? parsed : {};
+      if (!raw) return blankState();
+      const parsed = JSON.parse(raw);
+      return {
+        answers: parsed && parsed.answers && typeof parsed.answers === 'object' ? parsed.answers : null,
+        steps: parsed && parsed.steps && typeof parsed.steps === 'object' ? parsed.steps : {}
+      };
     } catch (_) {
-      return {};
+      return blankState();
     }
   }
 
   function writeState(state) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
-  function render() {
-    const state = readState();
+  function escapeLabel(value) {
+    return String(value || '').trim().slice(0, 80);
+  }
+
+  function getAnswers() {
+    return {
+      profile: profile.value,
+      horizon: horizon.value,
+      city: escapeLabel(city.value),
+      priority: priority.value
+    };
+  }
+
+  function restoreAnswers(answers) {
+    if (!answers) return;
+    if (profileCopy[answers.profile]) profile.value = answers.profile;
+    if (horizonCopy[answers.horizon]) horizon.value = answers.horizon;
+    if (answers.priority && priorityFocus[answers.priority]) priority.value = answers.priority;
+    city.value = escapeLabel(answers.city);
+  }
+
+  function renderProgress(state) {
     let completed = 0;
     boxes.forEach(box => {
-      box.checked = Boolean(state[box.dataset.step]);
+      box.checked = Boolean(state.steps[box.dataset.step]);
       if (box.checked) completed += 1;
     });
     const pct = boxes.length ? Math.round((completed / boxes.length) * 100) : 0;
     doneCount.textContent = String(completed);
     progressBar.style.width = `${pct}%`;
-    progressText.textContent = completed === boxes.length
-      ? 'Roadmap de base terminée. Les obligations récurrentes restent à suivre.'
-      : completed === 0
-        ? 'Commencez par votre statut d’entrée.'
-        : `${pct} % de la roadmap de base est marquée comme terminée.`;
+    progressText.textContent = !state.answers
+      ? 'Définissez d’abord votre projet.'
+      : completed === boxes.length
+        ? 'Roadmap de base terminée. Les obligations récurrentes restent à suivre.'
+        : completed === 0
+          ? 'Votre route est prête. Commencez par les étapes mises en avant.'
+          : `${pct} % de la roadmap de base est marquée comme terminée.`;
   }
+
+  function renderFocus(answers) {
+    cards.forEach(card => card.classList.remove('is-focus'));
+    if (!answers || !profileCopy[answers.profile]) return;
+
+    const focused = new Set([
+      ...profileCopy[answers.profile].focus,
+      ...(priorityFocus[answers.priority] || [])
+    ]);
+
+    cards.forEach(card => {
+      if (focused.has(card.dataset.cardStep)) card.classList.add('is-focus');
+    });
+  }
+
+  function renderSummary(answers) {
+    if (!answers || !profileCopy[answers.profile]) {
+      routeSummary.hidden = true;
+      renderFocus(null);
+      return;
+    }
+
+    const profileInfo = profileCopy[answers.profile];
+    const destination = answers.city || 'destination à préciser';
+    const horizonLabel = horizon.options[horizon.selectedIndex]?.textContent || answers.horizon;
+    const priorityLabel = priority.options[priority.selectedIndex]?.textContent || answers.priority;
+
+    routeHeadline.textContent = `Route ${profileInfo.label} → ${destination}`;
+    routeMeta.textContent = `${horizonLabel} · priorité : ${priorityLabel}`;
+    routeFirstAction.textContent = profileInfo.first;
+    routeContext.textContent = horizonCopy[answers.horizon] || '';
+    routeSummary.hidden = false;
+    renderFocus(answers);
+  }
+
+  function renderAll() {
+    const state = readState();
+    restoreAnswers(state.answers);
+    renderSummary(state.answers);
+    renderProgress(state);
+  }
+
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    const state = readState();
+    state.answers = getAnswers();
+    writeState(state);
+    renderSummary(state.answers);
+    renderProgress(state);
+    routeSummary.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 
   boxes.forEach(box => {
     box.addEventListener('change', () => {
       const state = readState();
-      state[box.dataset.step] = box.checked;
+      state.steps[box.dataset.step] = box.checked;
       writeState(state);
-      render();
-      track('roadmap_step_change', {
-        step: box.dataset.step,
-        completed: box.checked
-      });
+      renderProgress(state);
     });
   });
 
-  document.querySelectorAll('[data-intent]').forEach(button => {
-    button.addEventListener('click', () => {
-      const category = button.dataset.intent;
-      track('partner_intent', { category, route: 'france_usa' });
-      intentNotice.textContent = 'Besoin enregistré comme signal de test dans ce prototype. Aucun contact ni achat n’est déclenché.';
-    });
+  resetButton.addEventListener('click', () => {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+    form.reset();
+    routeSummary.hidden = true;
+    cards.forEach(card => card.classList.remove('is-focus'));
+    boxes.forEach(box => { box.checked = false; });
+    renderProgress(blankState());
   });
 
-  document.addEventListener('DOMContentLoaded', () => {
-    render();
-    track('roadmap_view', { route: 'france_usa', prototype: true });
-  });
+  document.addEventListener('DOMContentLoaded', renderAll);
 })();
