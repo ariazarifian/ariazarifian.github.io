@@ -25,9 +25,6 @@ jobs:
         env:
           PAYLOAD_URL: 'https://sdmntpraustraliaeast.oaiusercontent.com/files/00000000-4248-81fa-805a-061257eac2e2/raw?se=2026-09-19T19%3A43%3A39Z&sp=r&sv=2026-02-06&sr=b&scid=e9fc8082-84d8-5022-94d0-3f218e16d23d&skoid=cb94e22a-e3df-4e6a-9e17-1696f40fa435&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-19T19%3A17%3A21Z&ske=2026-09-20T19%3A17%3A21Z&sks=b&skv=2026-02-06&sig=7fwSPKiq3JrMDzzuL9vCPEbsaA7ngxj4SlQ55teOml8%3D'
           ZIP_SHA256: 'eb2e805c1d3bb016fa2cf58b18cb796d7b54c62a25140212be5cec1d3621fbaf'
-          PROD_NONCE_B64: 'Sq2tNt+FRcT5P8tA'
-          PROD_TAG_B64: 'FnBHjMbnkNDQWUx8eEDrFw=='
-          EXPECTED_PDF_SHA256: '825bd8b24eb22f9ff03f67016bc414f054334b243a02d98a071c25b392c3543f'
         run: |
           set -euo pipefail
           git fetch origin ops/atlas-executor-funnel-20260919
@@ -35,16 +32,14 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('/tmp/server.review.js')
-          s=p.read_text()
+          s=Path('/tmp/server.review.js').read_text()
           old_nonce="const FREE_GUIDE_NONCE_B64 = 'pp4LL4UGUMwxXPCb';"
           old_tag="const FREE_GUIDE_TAG_B64 = 'J4NXW8qKddFdWbCTN1nMKw==';"
           new_nonce="const FREE_GUIDE_NONCE_B64 = 'Sq2tNt+FRcT5P8tA';"
           new_tag="const FREE_GUIDE_TAG_B64 = 'FnBHjMbnkNDQWUx8eEDrFw==';"
           if s.count(old_nonce) != 1 or s.count(old_tag) != 1:
               raise SystemExit('review server free nonce/tag constants not exactly as expected')
-          s=s.replace(old_nonce,new_nonce).replace(old_tag,new_tag)
-          Path('atlas-delivery/server.js').write_text(s)
+          Path('atlas-delivery/server.js').write_text(s.replace(old_nonce,new_nonce).replace(old_tag,new_tag))
           PY
 
           curl -fsSL "$PAYLOAD_URL" -o /tmp/free-v15.zip
@@ -63,7 +58,8 @@ jobs:
           assert m['nonce_b64']=='Sq2tNt+FRcT5P8tA'
           assert m['tag_b64']=='FnBHjMbnkNDQWUx8eEDrFw=='
           files=sorted(root.glob('chunk*.txt'), key=lambda p:int(''.join(filter(str.isdigit,p.name))))
-          assert len(files)==2
+          assert [p.name for p in files] == ['chunk1.txt','chunk2.txt']
+          assert sorted(p.name for p in root.iterdir() if p.is_file()) == ['chunk1.txt','chunk2.txt','manifest.json']
           b64=''.join(p.read_text().strip() for p in files)
           ct=base64.b64decode(b64)
           assert len(ct)==m['ciphertext_bytes']==7470736
@@ -72,10 +68,10 @@ jobs:
           PY
 
           node --check atlas-delivery/server.js
-          changed=$(git status --short | awk '{print $2}')
-          echo "$changed"
-          if echo "$changed" | grep -Ev '^(atlas-delivery/server\.js|atlas-delivery/payload-free-v15/(chunk[0-9]+\.txt|manifest\.json))$'; then
-            echo 'Unexpected file in bounded backend promotion' >&2
+          tracked=$(git diff --name-only)
+          echo "$tracked"
+          if [ "$tracked" != "atlas-delivery/server.js" ]; then
+            echo 'Unexpected tracked-file mutation in bounded backend promotion' >&2
             exit 1
           fi
           if git status --short | grep -q 'atlas-delivery/payload/chunk'; then
@@ -86,5 +82,12 @@ jobs:
           git config user.name 'ATLAS Product Executor'
           git config user.email '71772355+ariazarifian@users.noreply.github.com'
           git add atlas-delivery/server.js atlas-delivery/payload-free-v15
+          staged=$(git diff --cached --name-only)
+          echo "$staged"
+          if echo "$staged" | grep -Ev '^(atlas-delivery/server\.js|atlas-delivery/payload-free-v15/(chunk1\.txt|chunk2\.txt|manifest\.json))$'; then
+            echo 'Unexpected staged file in bounded backend promotion' >&2
+            exit 1
+          fi
+          test "$(echo "$staged" | wc -l)" -eq 4
           git commit -m 'Deploy isolated free V15 backend payload'
           git push origin HEAD:ops/atlas-exit-20260914
