@@ -1,0 +1,63 @@
+name: P3C promote reviewed frontend
+
+on:
+  push:
+    branches:
+      - ops/atlas-executor-funnel-20260919
+    paths:
+      - .atlas-p3c-frontend-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout production branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/atlas-exit-20260914
+          fetch-depth: 0
+
+      - name: Promote only Chief-reviewed frontend files
+        run: |
+          set -euo pipefail
+          git fetch origin ops/atlas-executor-funnel-20260919
+          files=(
+            atlas-exit/offres.html
+            atlas-exit/atlas-events.js
+            atlas-exit/parcours-usa.html
+            atlas-exit/parcours-usa.js
+            atlas-exit/s-expatrier-etats-unis.html
+            atlas-exit/visa-e2-etats-unis-francais.html
+            atlas-exit/immigration-usa.html
+            atlas-exit/accompagnement.html
+          )
+          for f in "${files[@]}"; do
+            mkdir -p "$(dirname "$f")"
+            git show "origin/ops/atlas-executor-funnel-20260919:$f" > "$f"
+          done
+
+          node --check atlas-exit/atlas-events.js
+          node --check atlas-exit/parcours-usa.js
+          grep -q 'free-guide/usa' atlas-exit/offres.html
+          grep -q 'parcours-usa.html' atlas-exit/offres.html
+          grep -q 'guide_download_click' atlas-exit/atlas-events.js
+          grep -q 'Guide États-Unis gratuit' atlas-exit/s-expatrier-etats-unis.html
+          grep -q 'Guide États-Unis gratuit' atlas-exit/visa-e2-etats-unis-francais.html
+          grep -q 'Guide États-Unis gratuit' atlas-exit/immigration-usa.html
+          if grep -q '29 €' atlas-exit/accompagnement.html; then exit 1; fi
+          if grep -q 'Cap USA' atlas-exit/accompagnement.html; then exit 1; fi
+
+          git add "${files[@]}"
+          staged=$(git diff --cached --name-only)
+          echo "$staged"
+          expected=$(printf '%s\n' "${files[@]}" | sort)
+          actual=$(printf '%s\n' "$staged" | sort)
+          test "$actual" = "$expected"
+
+          git config user.name 'ATLAS Product Executor'
+          git config user.email '71772355+ariazarifian@users.noreply.github.com'
+          git commit -m 'Release truthful free V15 USA funnel'
+          git push origin HEAD:ops/atlas-exit-20260914
