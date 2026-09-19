@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euo pipefail
           candidate=abcbabba5c008a4820ec1d007b379a69e9b7086a
-          git cat-file -e "$candidate^{commit}"
+          base="https://raw.githubusercontent.com/ariazarifian/ariazarifian.github.io/$candidate"
           files=(
             atlas-exit/offres.html
             atlas-exit/atlas-events.js
@@ -37,7 +37,7 @@ jobs:
           )
           for f in "${files[@]}"; do
             mkdir -p "$(dirname "$f")"
-            git show "$candidate:$f" > "$f"
+            curl --retry 3 --retry-delay 1 -fsSL "$base/$f" -o "$f"
           done
 
           node --check atlas-exit/atlas-events.js
