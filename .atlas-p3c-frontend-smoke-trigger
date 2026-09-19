@@ -1,5 +1,6 @@
-trigger=2026-09-19T21:54:00+02:00
+trigger=2026-09-19T21:58:00+02:00
 frontend_commit=5bd56a2ab42f425a54d40855e69a69991de7ceab
 frontend_deploy=dep-danefk6k1f9s738f6vf0
 backend_commit=bcc7f744082432d55837611bc0fa806746dd5b3d
 backend_deploy=dep-danebo740ujc73blnch0
+verification=exact-live-reviewed-blobs-plus-roadmap-persistence
