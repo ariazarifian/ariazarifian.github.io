@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prototype — Parcours USA gratuit · Atlas Exit</title>
+<style>
+:root{--navy:#0f2745;--gold:#b79054;--ink:#162033;--muted:#687386;--paper:#f7f5ef;--line:#dfe4e8}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--paper);color:var(--ink)}
+main{max-width:980px;margin:auto;padding:48px 24px 72px}.brand{font:700 24px Georgia,serif;color:var(--navy);letter-spacing:.06em}.brand span{color:var(--gold)}
+.hero{margin:48px 0 32px}.hero h1{font:700 clamp(44px,7vw,78px)/.98 Georgia,serif;color:var(--navy);margin:0 0 20px}.hero p{font-size:20px;line-height:1.55;max-width:740px;color:#465367}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:22px}
+label{display:block;font-weight:700;margin-bottom:10px}select,input{width:100%;padding:14px;border:1px solid #ccd3d9;border-radius:12px;background:#fff;font-size:16px}
+button{margin-top:22px;background:var(--navy);color:white;border:0;border-radius:14px;padding:16px 22px;font-weight:700;font-size:17px;cursor:pointer}
+#result{margin-top:28px;background:#fff;border:1px solid var(--line);border-radius:24px;padding:26px;display:none}
+#result h2{font:700 36px Georgia,serif;color:var(--navy);margin:0 0 14px}.step{padding:14px 0;border-top:1px solid var(--line)}.step b{color:var(--navy)}
+.note{margin-top:24px;color:var(--muted);font-size:14px}.badge{display:inline-block;background:#efe6d6;color:#765b2d;border-radius:999px;padding:7px 11px;font-weight:700;font-size:13px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<div class="brand">ATLAS <span>EXIT</span></div>
+<section class="hero">
+<span class="badge">DRAFT INTERNE · NON PUBLIÉ</span>
+<h1>Ton parcours USA,<br>gratuitement.</h1>
+<p>Quelques réponses suffisent pour obtenir un premier ordre d’action. Aucun paiement, aucun compte, aucune donnée envoyée : ce prototype calcule tout localement dans le navigateur.</p>
+</section>
+<section class="grid">
+<div class="card"><label for="profile">Ton projet principal</label><select id="profile"><option value="job">Travailler pour un employeur</option><option value="business">Créer / développer une activité</option><option value="study">Étudier / échange</option><option value="family">Famille / installation durable</option></select></div>
+<div class="card"><label for="horizon">Horizon</label><select id="horizon"><option value="0-3">Moins de 3 mois</option><option value="3-6">3 à 6 mois</option><option value="6-12">6 à 12 mois</option><option value="12+">Plus tard</option></select></div>
+<div class="card"><label for="city">Destination</label><input id="city" placeholder="New York, Miami, Austin…"></div>
+<div class="card"><label for="priority">Priorité</label><select id="priority"><option>Immigration</option><option>Logement</option><option>Budget</option><option>Fiscalité</option><option>Entreprise</option></select></div>
+</section>
+<button id="build">Construire mon premier parcours →</button>
+<section id="result"></section>
+<p class="note">Prototype interne Atlas. Les étapes sont des repères généraux, pas un avis juridique ou fiscal individualisé.</p>
+</main>
+<script>
+const paths={
+job:["Valider une voie de travail compatible avec ton profil et ton employeur.","Préparer les preuves et le calendrier d'immigration.","Organiser départ de France, budget et logement temporaire.","À l'entrée : vérifier admission et I-94.","Après arrivée : SSN si éligible, banque, logement, santé, DMV selon l'État."],
+business:["Séparer droit d'immigration et création d'entreprise : une LLC ne donne pas un droit de travailler.","Comparer les voies adaptées au profil : E-2, L-1A, O-1A ou autres selon le dossier.","Construire preuves, budget d'atterrissage et structure opérationnelle.","À l'entrée : vérifier admission et I-94.","Ensuite : EIN/banque/comptabilité/licences uniquement dans le cadre autorisé."],
+study:["Vérifier programme, établissement et statut d'études adapté.","Préparer financement, dossier et calendrier consulaire.","Organiser logement temporaire, assurance et documents de voyage.","À l'entrée : vérifier admission et I-94.","Après arrivée : campus, banque, téléphone, logement et règles de travail liées au statut."],
+family:["Identifier la base familiale et la procédure exacte.","Construire le dossier de preuves et le calendrier.","Préparer départ de France, documents civils et budget.","À l'entrée ou à l'ajustement : conserver toutes les preuves de statut.","Installer santé, banque, logement et suivi des échéances long terme."]
+};
+document.querySelector('#build').addEventListener('click',()=>{
+ const profile=document.querySelector('#profile').value;
+ const city=document.querySelector('#city').value.trim()||'ta destination';
+ const horizon=document.querySelector('#horizon').selectedOptions[0].textContent;
+ const priority=document.querySelector('#priority').value;
+ const steps=paths[profile];
+ const result=document.querySelector('#result');
+ result.innerHTML='<span class="badge">'+city+' · '+horizon+'</span><h2>Ton premier ordre d’action</h2><p>Priorité déclarée : <b>'+priority+'</b></p>'+steps.map((s,i)=>'<div class="step"><b>0'+(i+1)+'</b> · '+s+'</div>').join('')+'<p class="note">Étape suivante produit : transformer cette route générique en checklist personnalisée et sauvegardable.</p>';
+ result.style.display='block';
+ result.scrollIntoView({behavior:'smooth',block:'start'});
+});
+</script>
+</body>
+</html>
