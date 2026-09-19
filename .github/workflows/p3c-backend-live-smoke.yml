@@ -1,0 +1,45 @@
+name: P3C backend live smoke
+
+on:
+  push:
+    branches:
+      - ops/atlas-executor-funnel-20260919
+    paths:
+      - .atlas-p3c-backend-smoke-trigger
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify live backend health, exact V15 and paid guard
+        run: |
+          set -euo pipefail
+          curl --retry 3 --retry-delay 2 -fsS https://atlas-exit-delivery.onrender.com/health -o /tmp/health.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/health.json'))
+          assert d['ok'] is True
+          assert d['revolutConfigured'] is True
+          assert d['guideConfigured'] is True
+          assert d['freeGuideConfigured'] is True
+          assert d['freeGuideEdition']=='15.0'
+          assert d['freeGuideSha256']=='825bd8b24eb22f9ff03f67016bc414f054334b243a02d98a071c25b392c3543f'
+          print('health PASS', {k:d[k] for k in ['ok','revolutConfigured','guideConfigured','freeGuideConfigured','freeGuideEdition','freeGuideSha256']})
+          PY
+
+          code=$(curl --retry 3 --retry-delay 2 -sS -D /tmp/free.headers -o /tmp/free.pdf -w '%{http_code}' https://atlas-exit-delivery.onrender.com/free-guide/usa)
+          test "$code" = 200
+          test "$(stat -c%s /tmp/free.pdf)" = 8011150
+          echo '825bd8b24eb22f9ff03f67016bc414f054334b243a02d98a071c25b392c3543f  /tmp/free.pdf' | sha256sum -c -
+          tr -d '\r' < /tmp/free.headers > /tmp/free.headers.clean
+          grep -Eqi '^content-type: application/pdf' /tmp/free.headers.clean
+          grep -Eqi '^content-disposition: attachment; filename="Atlas-Exit-Guide-Etats-Unis-Edition-15.0.pdf"' /tmp/free.headers.clean
+          grep -Eqi '^cache-control: private, no-store, max-age=0' /tmp/free.headers.clean
+          grep -Eqi '^x-content-type-options: nosniff' /tmp/free.headers.clean
+          grep -Eqi '^x-robots-tag: noindex, noarchive' /tmp/free.headers.clean
+          echo 'free V15 exact bytes + headers PASS'
+
+          badsig=$(printf '0%.0s' {1..64})
+          paid_code=$(curl -sS -o /tmp/paid-invalid.html -w '%{http_code}' "https://atlas-exit-delivery.onrender.com/download?order=p3c-smoke&sig=$badsig")
+          test "$paid_code" = 403
+          echo 'paid invalid-signature guard PASS (403)'
