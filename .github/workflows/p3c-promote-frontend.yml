@@ -23,7 +23,8 @@ jobs:
       - name: Promote only Chief-reviewed frontend files
         run: |
           set -euo pipefail
-          git fetch origin ops/atlas-executor-funnel-20260919
+          candidate=abcbabba5c008a4820ec1d007b379a69e9b7086a
+          git cat-file -e "$candidate^{commit}"
           files=(
             atlas-exit/offres.html
             atlas-exit/atlas-events.js
@@ -36,7 +37,7 @@ jobs:
           )
           for f in "${files[@]}"; do
             mkdir -p "$(dirname "$f")"
-            git show "origin/ops/atlas-executor-funnel-20260919:$f" > "$f"
+            git show "$candidate:$f" > "$f"
           done
 
           node --check atlas-exit/atlas-events.js
