@@ -1,6 +1,6 @@
 # ATLAS EXIT — P3C RELEASE CANDIDATE — 2026-09-19
 
-Status: EXECUTOR DEFECT-FIX UNIT COMPLETE — RESUBMIT TO CHIEF / NO GREEN LIGHT CLAIMED
+Status: EXECUTOR FINAL PRODUCT-TRUTH BLOCKER FIXED — RESUBMIT TO CHIEF / NO GREEN LIGHT CLAIMED
 Branch: `ops/atlas-executor-funnel-20260919`
 Production baseline / rollback commit: `c4421bf67cbcf8bb4f022c7ad35205706a85e22e` on `ops/atlas-exit-20260914`.
 
@@ -41,15 +41,38 @@ Accepted Distribution handoff from commit `9b97e6c70a95057cb04ef1d5c315a4db7c9ae
 - `atlas-exit/s-expatrier-etats-unis.html` commit `1c464913b5517789a5e5d303ee65696d9f22aab9`, blob `0a746572e01078aa74b11ad41d83b9e18a7aa0ab`;
 - page now presents V15 edition 15.0 / 25 pages as free and routes to the free guide acquisition page.
 
-The sitemap was used as the bounded inventory of indexable USA acquisition surfaces. Besides the root explorer and methodology/source pages, the direct USA acquisition entries are `s-expatrier-etats-unis.html`, `visa-e2-etats-unis-francais.html`, `immigration-usa.html`, and `offres.html?countries=USA`.
-
-Two additional stale paid contradictions were found and corrected on the review branch:
+The sitemap was used as the bounded inventory of indexable USA acquisition surfaces. Two additional stale paid contradictions were corrected:
 - `visa-e2-etats-unis-francais.html`: `Guide États-Unis · 29 €` → `Guide États-Unis gratuit`; commit `37b8ce84779cf8f31350ddcdb4adcdae7205242a`, blob `ffa9e7c7d0cecb4d2d03ad6428e4891dc09d1d1c`;
 - `immigration-usa.html`: paid guide CTA replaced by `Guide États-Unis gratuit`; stale `start.html?countries=USA` handoff replaced by `parcours-usa.html` / `Créer ma roadmap gratuite`; commit `df444e5679ef1b1fc7e8b84045558065c75f6b39`, blob `c424cfaaa3ba8a71d05b80eb089b2329fa1d52fd`.
 
-The root explorer was also inspected: its public navigation uses neutral `Guides & parcours` / `offres.html` wording and does not advertise a 29 € USA guide, so no root change was required.
+The root explorer uses neutral `Guides & parcours` / `offres.html` wording and does not advertise a paid USA guide, so no root change was required.
 
-### 4. Exact production free-payload procedure
+### 4. Final product-truth blocker — accompaniment page
+The 20:02 Chief re-review identified one remaining contradiction in sitemap-listed `atlas-exit/accompagnement.html`: it still linked to a 29 € guide and presented `Cap USA` as a paid autonomous 290 € path.
+
+Bounded correction on the same review branch:
+- first truthfulness commit: `d5ac6a14457d6d65a12ae3a50fe658bb14a3ec16`;
+- layout-polish commit: `df8e902ae61c5a19af5f034bdddd3f251beb32cd`;
+- final `accompagnement.html` blob: `7eb7fc66d753219d9cf0235dda77039bb21bec3e`.
+
+The page now:
+- links back to `Guide États-Unis gratuit` instead of a 29 € guide;
+- states explicitly that the V15 guide, roadmap and Atlas self-service tools remain free;
+- removes the autonomous `Cap USA` / 290 € card completely;
+- retains only clearly human/high-friction lanes: `Projet USA`, `Coordination`, `Signature`, all marked in preparation / not open and described as human accompaniment or coordination;
+- keeps `start.html` only as the human-contact modal intake (`Parler de mon projet ↗`), not as the default France→USA self-service path;
+- uses an accompaniment-page-local responsive grid override so three remaining human cards render as 3 columns desktop, 2 tablet, 1 mobile without changing shared commerce CSS.
+
+Static QA on the exact fetched-back blob:
+- exactly 3 programme cards: `guided`, `coordination`, `signature`;
+- no `29 €`, no `Cap USA`, no `autonome` wording;
+- free guide link resolves to `offres.html?countries=USA`;
+- exactly one `start.html` link remains and it is the human-contact modal CTA;
+- responsive 3/2/1 grid breakpoints are present.
+
+Bounded-diff proof: GitHub compare from prior P3C evidence commit `10dea5c4568407116d730e24a1e5787608b8bed1` to the post-fix review branch before this evidence refresh showed exactly two commits and only `atlas-exit/accompagnement.html` changed. A headless Chromium screenshot attempt in the Executor runtime hung in the container/DBus environment, so no new screenshot PASS is claimed for this page; the structural responsive checks above are the verified Executor evidence and Chief should visually re-open the actual artifact during the independent gate.
+
+### 5. Exact production free-payload procedure
 Current review branch fact: `atlas-delivery/payload-free-v15/` contains only `manifest.json`; the tested P3B encrypted archive is private in Atlas Drive and was created with a deliberately non-persisted test key. Therefore the current branch must NOT be deployed as-is.
 
 Controlled production procedure after Chief green light:
@@ -61,7 +84,7 @@ Controlled production procedure after Chief green light:
 6. Deploy only the bounded backend/free-payload files and bounded frontend/SEO candidate files listed here; do not merge/promote prototype or internal evidence files wholesale.
 7. Live verification immediately after backend release: `/health` reports `freeGuideConfigured=true`, edition `15.0`, exact V15 SHA; `GET /free-guide/usa` returns HTTP 200, `application/pdf`, attachment filename for edition 15.0, `Cache-Control: private, no-store, max-age=0`, `X-Content-Type-Options: nosniff`, `X-Robots-Tag: noindex, noarchive`, exactly 8,011,150 bytes and exact SHA-256 above.
 8. Paid regression immediately after release: historical paid constants/payload remain unchanged; invalid paid `/download` signature remains HTTP 403; no free request requires a Revolut call.
-9. Only after backend smoke passes, release the bounded public frontend/SEO surfaces, then smoke `offres.html`, `parcours-usa.html`, and the three indexable USA entry pages.
+9. Only after backend smoke passes, release the bounded public frontend/SEO surfaces, then smoke `offres.html`, `parcours-usa.html`, the indexable USA entry pages, and `accompagnement.html`.
 
 ## Bounded frontend release set
 - `atlas-exit/offres.html`
@@ -71,6 +94,7 @@ Controlled production procedure after Chief green light:
 - `atlas-exit/s-expatrier-etats-unis.html`
 - `atlas-exit/visa-e2-etats-unis-francais.html`
 - `atlas-exit/immigration-usa.html`
+- `atlas-exit/accompagnement.html`
 
 Backend release set remains isolated to `atlas-delivery/server.js` + production-generated `atlas-delivery/payload-free-v15/chunk*.txt` + matching free payload manifest/constants. Historical paid payload files are not part of the change.
 
@@ -81,4 +105,4 @@ Backend release set remains isolated to `atlas-delivery/server.js` + production-
 - `FREE_GUIDE_KEY_HEX` is isolated and unused by the paid path; removing it is not required to restore historical paid delivery.
 
 ## Gate status
-Executor fixes requested by the 19:06 Chief gate are complete and documented. **No production green light is claimed here.** P3C remains pending independent Chief re-review. No Render deploy, DNS/payment-account change, spend, external message, contract, or real-world administrative/legal/tax/immigration/banking automation occurred in this unit.
+The final product-truth blocker returned by the 20:02 Chief gate is corrected and documented. **No production green light is claimed here.** P3C is resubmitted for independent Chief re-review. No production deploy, Render change, DNS/payment-account change, spend, external message/contact, contract, destructive action, or real-world administrative/legal/tax/immigration/banking automation occurred in this unit.
