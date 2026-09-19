@@ -20,11 +20,13 @@ Task: P3B
 - encryption key: supplied only through `FREE_GUIDE_KEY_HEX` in the Executor test runtime; not committed to GitHub or Drive.
 - private encrypted archive in Atlas Drive: `ATLAS — V15 FREE PAYLOAD — ENCRYPTED — P3B.zip`, file ID `1Q8gUJ56SFpBf32u0-6pcrgKPy2YGKNvE`.
 - encrypted archive SHA-256: `9a897f243b3b367c3fa520fa68fc378db1dd7ca93ecd2e4bae2bb0e6b445e8e3`.
+- archive contents reverified from Drive: `chunk1.txt` 4,980,492 bytes SHA-256 `fad097e9079b610e0c0af072ef84af64a61624e702fe61f0e9cc156aafdaf974`; `chunk2.txt` 4,980,492 bytes SHA-256 `cd4edaa601c39a399dee21b35e621b41c6f291726e76a755f64fdd5ab9103c3a`.
 
 ## Backend review implementation
 - `atlas-delivery/server.js` commit `4238bd3b30c4513d21781ccd9589d60b74262a89` added the isolated route.
-- follow-up commit `4d4709b525a3b8f612546f1cda8e3ab97ef2d0eb` fixed chunk filename regex matching before completion.
-- current server blob after fix: `602f21c17fce3f7faed88c7b597c33bc5e1964ac`.
+- follow-up commit `4d4709b525a3b8f612546f1cda8e3ab97ef2d0eb` attempted the first chunk-matching correction.
+- revalidation caught a remaining escaped-regex defect in the second side of the numeric chunk sorter; commit `fb95288dbe0bf9ce56f5d64b69689d48f2ba904f` fixes exactly that one line.
+- current verified server blob: `ebc72a07d8165a346fe3fdd264b6d6b3de49263b`.
 - payload manifest commit: `0c57387c0470e564e99e76476ced564ed3086f81`.
 
 Isolated runtime namespace:
@@ -40,16 +42,17 @@ Isolated runtime namespace:
 ## Runtime tests
 
 ### Syntax
-`node --check server.js` → PASS on the tested P3B implementation.
+`node --check server.js` → PASS on the exact current server blob `ebc72a07d8165a346fe3fdd264b6d6b3de49263b`.
 
 ### Health
-With a valid test-only `FREE_GUIDE_KEY_HEX`:
+With the matching test-only `FREE_GUIDE_KEY_HEX`:
 - `freeGuideConfigured = true`
 - `freeGuideEdition = 15.0`
 - `freeGuideSha256 = 825bd8b24eb22f9ff03f67016bc414f054334b243a02d98a071c25b392c3543f`
+- `revolutConfigured = false` during the free-route test.
 
 ### Free route
-Local request to `GET /free-guide/usa`:
+Local request to `GET /free-guide/usa` against the exact current committed server blob plus the encrypted Drive payload:
 - HTTP `200`
 - `Content-Type: application/pdf`
 - `Content-Disposition: attachment; filename="Atlas-Exit-Guide-Etats-Unis-Edition-15.0.pdf"`
@@ -73,8 +76,9 @@ Review branch vs `ops/atlas-exit-20260914`:
 - paid payload chunk 2 blob remains `63b69696ce3654ada6ccf65d12c09374bd0db155`
 - signed paid `/download` block: exact match
 - runtime invalid-signature request to paid `/download`: HTTP `403`.
+- the final P3B corrective commit touches only the free chunk-sort regex, so it does not alter any paid code path.
 
 ## Boundary
 No Render deploy, production publication, DNS/payment change, external message, spending, or plaintext V15 publication occurred.
 
-The encrypted ciphertext is persisted privately in Drive for review continuity; the free encryption key remains intentionally unpersisted. A deployment step must inject a production `FREE_GUIDE_KEY_HEX` and use a matching encrypted payload, which belongs to the later approved production cutover rather than P3B.
+The encrypted ciphertext is persisted privately in Drive for review continuity; the free encryption key remains intentionally uncommitted. A production cutover must create/inject a production `FREE_GUIDE_KEY_HEX` together with a matching encrypted payload as one bounded release step, after the Chief release gate.
