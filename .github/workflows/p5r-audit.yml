@@ -1,0 +1,77 @@
+name: P5R exact npm audit
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5r-audit-20260920
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.9.0'
+          cache: 'npm'
+      - name: Record toolchain and lock identity
+        run: |
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "lock_blob_expected=50d9eccbe294cbf8516ce24642f8fed78ca4f47a"
+            sha256sum package-lock.json
+          } | tee p5r-versions.txt
+      - name: Install exact lock without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Capture audit JSON
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > p5r-audit.json
+          code=$?
+          echo "npm_audit_exit=$code" >> p5r-versions.txt
+          exit 0
+      - name: Build critical-high package list
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const a=JSON.parse(fs.readFileSync('p5r-audit.json','utf8'));
+          const v=a.vulnerabilities||{};
+          const rows=Object.entries(v)
+            .filter(([,x])=>x && (x.severity==='critical'||x.severity==='high'))
+            .map(([name,x])=>({name,severity:x.severity,isDirect:!!x.isDirect,range:x.range,nodes:x.nodes||[],via:x.via||[],effects:x.effects||[],fixAvailable:x.fixAvailable}));
+          fs.writeFileSync('p5r-critical-high.json', JSON.stringify(rows,null,2));
+          fs.writeFileSync('p5r-critical-high-packages.txt', rows.map(x=>x.name).join('\n')+'\n');
+          console.log(JSON.stringify({metadata:a.metadata,criticalHighCount:rows.length,packages:rows.map(x=>[x.severity,x.name,x.isDirect])},null,2));
+          NODE
+      - name: Explain critical and high dependency chains
+        shell: bash
+        run: |
+          : > p5r-explain.txt
+          while IFS= read -r pkg; do
+            [ -z "$pkg" ] && continue
+            echo "===== $pkg =====" >> p5r-explain.txt
+            npm explain "$pkg" >> p5r-explain.txt 2>&1 || true
+            echo >> p5r-explain.txt
+          done < p5r-critical-high-packages.txt
+          cat p5r-explain.txt
+      - name: Capture installed tree
+        shell: bash
+        run: npm ls --all --json > p5r-tree.json || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p5r-audit-evidence
+          path: |
+            p5r-audit.json
+            p5r-critical-high.json
+            p5r-critical-high-packages.txt
+            p5r-explain.txt
+            p5r-tree.json
+            p5r-versions.txt
+          if-no-files-found: error
+          retention-days: 7
