@@ -10,6 +10,7 @@ const PORT = Number(process.env.PORT || 10000);
 const REVOLUT_SECRET_KEY = process.env.REVOLUT_SECRET_KEY || '';
 const REVOLUT_API_VERSION = process.env.REVOLUT_API_VERSION || '2026-03-12';
 const GUIDE_KEY_HEX = process.env.GUIDE_KEY_HEX || '';
+const FREE_GUIDE_KEY_HEX = process.env.FREE_GUIDE_KEY_HEX || '';
 const DELIVERY_SIGNING_SECRET = process.env.DELIVERY_SIGNING_SECRET || '';
 const PUBLIC_SITE_URL = (process.env.PUBLIC_SITE_URL || 'https://atlas-exit-premium.onrender.com').replace(/\/+$/, '');
 const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || 'https://atlas-exit-delivery.onrender.com').replace(/\/+$/, '');
@@ -22,6 +23,13 @@ const PRODUCT_CURRENCY = 'EUR';
 const GUIDE_SHA256 = 'e36e055c9b8aae04c4f08f8bc2f1b5eb030b732c3ed0200bb68599c8f54c32f7';
 const GUIDE_NONCE_B64 = 'imeFcFExmNbScgfw';
 const GUIDE_TAG_B64 = 'r7bYk8kJsHdI7biKrX4gYg==';
+
+// Isolated free V15 asset. Paid constants/payload above must remain unchanged.
+const FREE_GUIDE_EDITION = '15.0';
+const FREE_GUIDE_SHA256 = '825bd8b24eb22f9ff03f67016bc414f054334b243a02d98a071c25b392c3543f';
+const FREE_GUIDE_NONCE_B64 = 'pp4LL4UGUMwxXPCb';
+const FREE_GUIDE_TAG_B64 = 'J4NXW8qKddFdWbCTN1nMKw==';
+const FREE_GUIDE_AAD = 'atlas-guide-usa-free-v15:gzip';
 
 const ALLOWED_ORIGINS = new Set([
   'https://atlas-exit-premium.onrender.com',
@@ -189,6 +197,31 @@ function decryptGuide() {
   return pdf;
 }
 
+function decryptFreeGuide() {
+  const key = Buffer.from(FREE_GUIDE_KEY_HEX, 'hex');
+  if (key.length !== 32) throw new Error('free guide key invalid');
+
+  const nonce = Buffer.from(FREE_GUIDE_NONCE_B64, 'base64');
+  const tag = Buffer.from(FREE_GUIDE_TAG_B64, 'base64');
+  const payloadDir = path.join(__dirname, 'payload-free-v15');
+  const files = fs.readdirSync(payloadDir)
+    .filter(name => /^chunk\\d+\\.txt$/.test(name))
+    .sort((a, b) => Number(a.match(/\\d+/)[0]) - Number(b.match(/\\d+/)[0]));
+  if (!files.length) throw new Error('free guide payload missing');
+  const b64 = files.map(name => fs.readFileSync(path.join(payloadDir, name), 'utf8').trim()).join('');
+  const ciphertext = Buffer.from(b64, 'base64');
+  if (nonce.length !== 12 || tag.length !== 16 || !ciphertext.length) throw new Error('free guide payload invalid');
+
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+  decipher.setAAD(Buffer.from(FREE_GUIDE_AAD, 'utf8'));
+  decipher.setAuthTag(tag);
+  const compressed = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  const pdf = zlib.gunzipSync(compressed);
+  const actual = crypto.createHash('sha256').update(pdf).digest('hex');
+  if (actual !== FREE_GUIDE_SHA256) throw new Error('free guide integrity mismatch');
+  return pdf;
+}
+
 function completePage(orderId, sig) {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Votre guide est prêt - Atlas Exit</title><style>
@@ -225,7 +258,10 @@ const server = http.createServer(async (req, res) => {
       guideConfigured: /^[0-9a-f]{64}$/i.test(GUIDE_KEY_HEX),
       product: PRODUCT_ID,
       edition: GUIDE_EDITION,
-      guideSha256: GUIDE_SHA256
+      guideSha256: GUIDE_SHA256,
+      freeGuideConfigured: /^[0-9a-f]{64}$/i.test(FREE_GUIDE_KEY_HEX),
+      freeGuideEdition: FREE_GUIDE_EDITION,
+      freeGuideSha256: FREE_GUIDE_SHA256
     }, origin);
   }
 
@@ -266,6 +302,24 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       console.error('status_error', e.message);
       return json(res, 502, { paid: false, error: 'verification_failed' });
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/free-guide/usa') {
+    try {
+      const pdf = decryptFreeGuide();
+      res.writeHead(200, {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'attachment; filename="Atlas-Exit-Guide-Etats-Unis-Edition-15.0.pdf"',
+        'Content-Length': pdf.length,
+        'Cache-Control': 'private, no-store, max-age=0',
+        'X-Content-Type-Options': 'nosniff',
+        'X-Robots-Tag': 'noindex, noarchive'
+      });
+      return res.end(pdf);
+    } catch (e) {
+      console.error('free_download_error', e.message);
+      return html(res, 503, '<h1>Guide momentanément indisponible.</h1><p>Réessayez dans quelques instants.</p>');
     }
   }
 
