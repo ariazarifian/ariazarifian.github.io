@@ -2,7 +2,7 @@
   'use strict';
 
   const ALLOWED_EVENTS = new Set([
-    'guide_download',
+    'guide_download_click',
     'free_funnel_cta',
     'route_started',
     'roadmap_saved',
