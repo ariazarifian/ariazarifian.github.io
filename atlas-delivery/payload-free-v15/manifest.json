@@ -1,0 +1,19 @@
+{
+  "status": "P3B_NON_PRODUCTION_TEST_PAYLOAD",
+  "edition": "15.0",
+  "source_drive_id": "1XPqrpVMOwSw0tuM_hlaTqrELes8GwhHV",
+  "source_pdf_sha256": "825bd8b24eb22f9ff03f67016bc414f054334b243a02d98a071c25b392c3543f",
+  "source_pdf_bytes": 8011150,
+  "gzip_bytes": 7470736,
+  "ciphertext_bytes": 7470736,
+  "ciphertext_sha256": "9cc55beeeab848030fda753d4015fadceb746cfdba5b979860e9a7b034804f7b",
+  "base64_chars": 9960984,
+  "chunk_count": 2,
+  "chunk_chars_each": [4980492, 4980492],
+  "nonce_b64": "pp4LL4UGUMwxXPCb",
+  "tag_b64": "J4NXW8qKddFdWbCTN1nMKw==",
+  "aad": "atlas-guide-usa-free-v15:gzip",
+  "key_source": "FREE_GUIDE_KEY_HEX environment variable",
+  "key_committed": false,
+  "note": "Ciphertext was generated and tested against the exact V15 artifact in the Executor runtime. The encryption key is intentionally not committed."
+}
