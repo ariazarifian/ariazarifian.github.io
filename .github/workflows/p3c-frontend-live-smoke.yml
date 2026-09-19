@@ -1,0 +1,66 @@
+name: P3C frontend live smoke
+
+on:
+  push:
+    branches:
+      - ops/atlas-executor-funnel-20260919
+    paths:
+      - .atlas-p3c-frontend-smoke-trigger
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify live free funnel, roadmap persistence and USA handoffs
+        run: |
+          set -euo pipefail
+          site=https://atlas-exit-premium.onrender.com
+          curl --retry 3 --retry-delay 2 -fsS "$site/offres.html?countries=USA" -o /tmp/offres.html
+          curl --retry 3 --retry-delay 2 -fsS "$site/parcours-usa.html" -o /tmp/parcours.html
+          curl --retry 3 --retry-delay 2 -fsS "$site/parcours-usa.js" -o /tmp/parcours.js
+          curl --retry 3 --retry-delay 2 -fsS "$site/s-expatrier-etats-unis.html" -o /tmp/expat.html
+          curl --retry 3 --retry-delay 2 -fsS "$site/visa-e2-etats-unis-francais.html" -o /tmp/e2.html
+          curl --retry 3 --retry-delay 2 -fsS "$site/immigration-usa.html" -o /tmp/immigration.html
+          curl --retry 3 --retry-delay 2 -fsS "$site/accompagnement.html" -o /tmp/accompagnement.html
+          curl --retry 3 --retry-delay 2 -fsS "$site/atlas-events.js" -o /tmp/events.js
+
+          grep -q 'https://atlas-exit-delivery.onrender.com/free-guide/usa' /tmp/offres.html
+          grep -q 'parcours-usa.html' /tmp/offres.html
+          grep -q 'Guide États-Unis gratuit' /tmp/expat.html
+          grep -q 'Guide États-Unis gratuit' /tmp/e2.html
+          grep -q 'parcours-usa.html' /tmp/immigration.html
+          if grep -q '29 €' /tmp/accompagnement.html; then exit 1; fi
+          if grep -q 'Cap USA' /tmp/accompagnement.html; then exit 1; fi
+          test "$(grep -o 'data-step=' /tmp/parcours.html | wc -l)" -eq 8
+
+          test "$(git hash-object /tmp/parcours.js)" = ab2b2957ead438ec44141fab2e721adc16f08878
+          test "$(git hash-object /tmp/events.js)" = 6e0c520c330faa278bcc76828b2918ec02f6fbcf
+          echo 'live reviewed JS identity PASS'
+
+          node <<'NODE'
+          const fs=require('fs'); const vm=require('vm');
+          const code=fs.readFileSync('/tmp/parcours.js','utf8');
+          const store=new Map();
+          global.localStorage={getItem:k=>store.has(k)?store.get(k):null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)};
+          global.window={AtlasEvents:{track:()=>true}};
+          function makeEl(value='') { return {value,checked:false,textContent:'',hidden:false,style:{},dataset:{},options:[{textContent:'x'}],selectedIndex:0,classList:{add(){},remove(){}},handlers:{},addEventListener(t,f){this.handlers[t]=f},scrollIntoView(){},reset(){}}; }
+          function makeDoc() {
+            const ids={routeForm:makeEl(),profile:makeEl('job'),horizon:makeEl('3-6'),city:makeEl('New York'),priority:makeEl('immigration'),resetRoute:makeEl(),routeSummary:makeEl(),routeHeadline:makeEl(),routeMeta:makeEl(),routeFirstAction:makeEl(),routeContext:makeEl(),doneCount:makeEl(),progressBar:makeEl(),progressText:makeEl()};
+            ids.horizon.options=[{textContent:'3 à 6 mois'}]; ids.priority.options=[{textContent:'Immigration'}];
+            const boxes=Array.from({length:8},(_,i)=>{const e=makeEl();e.dataset.step='s'+(i+1);return e});
+            const cards=Array.from({length:8},(_,i)=>{const e=makeEl();e.dataset.cardStep=['immigration','documents','entry','identity','france','landing','settle','compliance'][i];return e});
+            return {ids,boxes,cards,getElementById:id=>ids[id],querySelectorAll:q=>q==='[data-step]'?boxes:cards,addEventListener(t,f){if(t==='DOMContentLoaded')f()}};
+          }
+          global.document=makeDoc(); vm.runInThisContext(code);
+          document.ids.routeForm.handlers.submit({preventDefault(){}});
+          let state=JSON.parse(store.get('atlas_usa_route_v3'));
+          if(!state || state.answers.city!=='New York' || state.answers.profile!=='job') throw new Error('roadmap answers not saved');
+          document.boxes[0].checked=true; document.boxes[0].handlers.change();
+          state=JSON.parse(store.get('atlas_usa_route_v3'));
+          if(state.steps.s1!==true) throw new Error('roadmap progress not saved');
+          global.document=makeDoc(); vm.runInThisContext(code);
+          if(document.ids.profile.value!=='job' || document.ids.city.value!=='New York' || document.boxes[0].checked!==true) throw new Error('roadmap state not restored');
+          console.log('live roadmap save/progress/restore PASS');
+          NODE
+
+          echo 'frontend live smoke PASS'
