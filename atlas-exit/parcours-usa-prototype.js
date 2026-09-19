@@ -2,6 +2,7 @@
   'use strict';
 
   const STORAGE_KEY = 'atlas_usa_route_v2';
+  const ROUTE_VERSION = 'usa-v2';
   const form = document.getElementById('routeForm');
   const profile = document.getElementById('profile');
   const horizon = document.getElementById('horizon');
@@ -58,7 +59,7 @@
   };
 
   function blankState() {
-    return { answers: null, steps: {} };
+    return { answers: null, steps: {}, events: {} };
   }
 
   function readState() {
@@ -68,7 +69,8 @@
       const parsed = JSON.parse(raw);
       return {
         answers: parsed && parsed.answers && typeof parsed.answers === 'object' ? parsed.answers : null,
-        steps: parsed && parsed.steps && typeof parsed.steps === 'object' ? parsed.steps : {}
+        steps: parsed && parsed.steps && typeof parsed.steps === 'object' ? parsed.steps : {},
+        events: parsed && parsed.events && typeof parsed.events === 'object' ? parsed.events : {}
       };
     } catch (_) {
       return blankState();
@@ -82,6 +84,33 @@
     } catch (_) {
       return false;
     }
+  }
+
+  function track(name, payload = {}) {
+    const tracker = window.AtlasDraftEvents && window.AtlasDraftEvents.track;
+    return typeof tracker === 'function' ? tracker(name, payload) : false;
+  }
+
+  function emitOnce(state, flag, name, payload) {
+    if (state.events[flag]) return false;
+    const emitted = track(name, payload);
+    if (!emitted) return false;
+    state.events[flag] = true;
+    writeState(state);
+    return true;
+  }
+
+  function countCompleted(state) {
+    return boxes.reduce((count, box) => count + (state.steps[box.dataset.step] ? 1 : 0), 0);
+  }
+
+  function eventProgressPayload(state) {
+    return {
+      route_version: ROUTE_VERSION,
+      completed_steps: countCompleted(state),
+      total_steps: boxes.length,
+      has_answers: Boolean(state.answers)
+    };
   }
 
   function escapeLabel(value) {
@@ -162,13 +191,51 @@
     restoreAnswers(state.answers);
     renderSummary(state.answers);
     renderProgress(state);
+    return state;
+  }
+
+  function handleActivationOnLoad(state) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('source') === 'free_funnel') {
+      const emitted = track('free_funnel_cta', {
+        surface: 'offres',
+        target: 'roadmap',
+        route_version: ROUTE_VERSION
+      });
+      if (emitted && window.history && typeof window.history.replaceState === 'function') {
+        params.delete('source');
+        const query = params.toString();
+        const cleanUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`;
+        window.history.replaceState(null, '', cleanUrl);
+      }
+    }
+
+    const completed = countCompleted(state);
+    if (state.answers || completed > 0) {
+      track('roadmap_returned', eventProgressPayload(state));
+    }
+    if (state.answers && completed === boxes.length && boxes.length > 0) {
+      emitOnce(state, 'routeCompleted', 'route_completed', eventProgressPayload(state));
+    }
   }
 
   form.addEventListener('submit', event => {
     event.preventDefault();
     const state = readState();
+    const hadAnswers = Boolean(state.answers);
     state.answers = getAnswers();
-    writeState(state);
+    const saved = writeState(state);
+
+    if (saved) {
+      if (!hadAnswers) {
+        emitOnce(state, 'routeStarted', 'route_started', {
+          route_version: ROUTE_VERSION,
+          total_steps: boxes.length
+        });
+      }
+      emitOnce(state, 'roadmapSaved', 'roadmap_saved', eventProgressPayload(state));
+    }
+
     renderSummary(state.answers);
     renderProgress(state);
     routeSummary.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -178,8 +245,15 @@
     box.addEventListener('change', () => {
       const state = readState();
       state.steps[box.dataset.step] = box.checked;
-      writeState(state);
+      const saved = writeState(state);
       renderProgress(state);
+
+      if (saved) {
+        emitOnce(state, 'roadmapSaved', 'roadmap_saved', eventProgressPayload(state));
+        if (state.answers && countCompleted(state) === boxes.length && boxes.length > 0) {
+          emitOnce(state, 'routeCompleted', 'route_completed', eventProgressPayload(state));
+        }
+      }
     });
   });
 
@@ -192,5 +266,8 @@
     renderProgress(blankState());
   });
 
-  document.addEventListener('DOMContentLoaded', renderAll);
+  document.addEventListener('DOMContentLoaded', () => {
+    const state = renderAll();
+    handleActivationOnLoad(state);
+  });
 })();
