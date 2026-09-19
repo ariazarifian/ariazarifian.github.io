@@ -19,6 +19,19 @@
   const doneCount = document.getElementById('doneCount');
   const progressBar = document.getElementById('progressBar');
   const progressText = document.getElementById('progressText');
+  const progressCard = document.querySelector('.progress-card');
+  const resumeRow = progressCard ? document.createElement('div') : null;
+  const resumeButton = progressCard ? document.createElement('button') : null;
+
+  if (resumeRow && resumeButton) {
+    resumeRow.className = 'action-row';
+    resumeRow.hidden = true;
+    resumeButton.type = 'button';
+    resumeButton.className = 'secondary-action';
+    resumeButton.id = 'resumeRoute';
+    resumeRow.appendChild(resumeButton);
+    progressCard.appendChild(resumeRow);
+  }
 
   const profileCopy = {
     job: {
@@ -104,6 +117,26 @@
     return boxes.reduce((count, box) => count + (state.steps[box.dataset.step] ? 1 : 0), 0);
   }
 
+  function nextIncompleteCard(state) {
+    const nextBox = boxes.find(box => !state.steps[box.dataset.step]);
+    const stepName = nextBox ? nextBox.dataset.step : boxes[0]?.dataset.step;
+    return cards.find(card => card.dataset.cardStep === stepName) || cards[0] || null;
+  }
+
+  function updateResumeAction(state) {
+    if (!resumeRow || !resumeButton || !state.answers) {
+      if (resumeRow) resumeRow.hidden = true;
+      return;
+    }
+
+    const completed = countCompleted(state);
+    const nextIndex = boxes.findIndex(box => !state.steps[box.dataset.step]);
+    resumeButton.textContent = completed === boxes.length
+      ? 'Revoir ma roadmap →'
+      : `Reprendre à l’étape ${Math.max(nextIndex, 0) + 1} →`;
+    resumeRow.hidden = false;
+  }
+
   function eventProgressPayload(state) {
     return {
       route_version: ROUTE_VERSION,
@@ -150,6 +183,7 @@
         : completed === 0
           ? 'Votre route est prête. Commencez par les étapes mises en avant.'
           : `${pct} % de la roadmap de base est marquée comme terminée.`;
+    updateResumeAction(state);
   }
 
   function renderFocus(answers) {
@@ -202,6 +236,16 @@
     if (state.answers && completed === boxes.length && boxes.length > 0) {
       emitOnce(state, 'routeCompleted', 'route_completed', eventProgressPayload(state));
     }
+  }
+
+  if (resumeButton) {
+    resumeButton.addEventListener('click', () => {
+      const target = nextIncompleteCard(readState());
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const checkbox = target.querySelector('[data-step]');
+      if (checkbox) checkbox.focus({ preventScroll: true });
+    });
   }
 
   form.addEventListener('submit', event => {
