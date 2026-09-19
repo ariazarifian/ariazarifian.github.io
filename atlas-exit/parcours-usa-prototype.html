@@ -5,48 +5,88 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1115">
 <meta name="robots" content="noindex,nofollow">
-<meta name="description" content="Prototype non-production du parcours Atlas États-Unis : roadmap gratuite, progression locale et mesure des besoins partenaires.">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cloud.umami.is; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://cloud.umami.is; base-uri 'none'; object-src 'none'; form-action 'none'">
+<meta name="description" content="Prototype non-production du parcours Atlas France vers États-Unis : orientation gratuite, roadmap personnalisée et progression locale.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; object-src 'none'; form-action 'self'">
 <title>Prototype parcours USA — Atlas Exit</title>
 <link rel="stylesheet" href="style.css?v=polish2">
-<script defer src="https://cloud.umami.is/script.js" data-website-id="16d90020-7c80-42f7-bee3-ee10249320a0" data-domains="atlas-expat.fr,www.atlas-expat.fr"></script>
-<script src="analytics.js?v=6" defer></script>
-<script src="parcours-usa-prototype.js?v=1" defer></script>
+<script src="parcours-usa-prototype.js?v=2" defer></script>
 <style>
-body{background:#0b1115;color:#f4f1ea}.prototype-wrap{width:min(1080px,calc(100% - 36px));margin:0 auto;padding:42px 0 80px}.prototype-banner{border:1px solid rgba(214,193,155,.35);background:rgba(214,193,155,.08);padding:12px 16px;border-radius:12px;margin-bottom:28px;font-size:13px}.hero-roadmap{display:grid;grid-template-columns:1.25fr .75fr;gap:28px;align-items:end;margin-bottom:32px}.hero-roadmap h1{font-size:clamp(42px,7vw,82px);line-height:.94;margin:8px 0 18px}.hero-roadmap p{max-width:680px;color:#b7c0c5;font-size:18px;line-height:1.55}.progress-card{border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:20px;background:rgba(255,255,255,.035)}.progress-card strong{font-size:32px;display:block}.bar{height:8px;background:rgba(255,255,255,.1);border-radius:99px;overflow:hidden;margin:12px 0}.bar i{display:block;height:100%;width:0;background:#d6c19b;transition:width .2s}.roadmap{display:grid;gap:12px}.step{border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:18px;background:rgba(255,255,255,.025);display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:start}.step input{width:22px;height:22px;margin-top:3px}.step h2{font-size:19px;margin:0 0 6px}.step p{margin:0;color:#aeb8bd;line-height:1.45;font-size:14px}.step .tag{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#d6c19b;border:1px solid rgba(214,193,155,.28);padding:5px 8px;border-radius:99px;white-space:nowrap}.partner-lab{margin-top:34px;border-top:1px solid rgba(255,255,255,.12);padding-top:30px}.partner-lab h2{font-size:30px;margin:0 0 8px}.partner-lab>p{color:#aeb8bd;max-width:740px}.intent-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}.intent{border:1px solid rgba(255,255,255,.14);background:transparent;color:#f4f1ea;border-radius:12px;padding:15px;text-align:left;cursor:pointer}.intent:hover{border-color:#d6c19b}.intent strong{display:block;margin-bottom:5px}.intent span{font-size:12px;color:#9fa9ae}.notice{min-height:24px;margin-top:14px;color:#d6c19b;font-size:13px}.footnote{margin-top:30px;font-size:12px;color:#7f898f;line-height:1.5}@media(max-width:760px){.hero-roadmap{grid-template-columns:1fr}.step{grid-template-columns:auto 1fr}.step .tag{grid-column:2}.intent-grid{grid-template-columns:1fr}}
+body{background:#0b1115;color:#f4f1ea}.prototype-wrap{width:min(1080px,calc(100% - 36px));margin:0 auto;padding:42px 0 80px}.prototype-banner{border:1px solid rgba(214,193,155,.35);background:rgba(214,193,155,.08);padding:12px 16px;border-radius:12px;margin-bottom:28px;font-size:13px}.hero-roadmap{display:grid;grid-template-columns:1.25fr .75fr;gap:28px;align-items:end;margin-bottom:32px}.hero-roadmap h1{font-size:clamp(42px,7vw,82px);line-height:.94;margin:8px 0 18px}.hero-roadmap p{max-width:680px;color:#b7c0c5;font-size:18px;line-height:1.55}.progress-card,.orientation-card,.route-summary,.guide-bridge{border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:20px;background:rgba(255,255,255,.035)}.progress-card strong{font-size:32px;display:block}.bar{height:8px;background:rgba(255,255,255,.1);border-radius:99px;overflow:hidden;margin:12px 0}.bar i{display:block;height:100%;width:0;background:#d6c19b;transition:width .2s}.orientation-card{margin:22px 0 18px}.orientation-card h2,.route-summary h2,.guide-bridge h2{margin:0 0 8px;font-size:28px}.orientation-card>p,.route-summary>p,.guide-bridge>p{color:#aeb8bd;line-height:1.5}.orientation-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}.orientation-grid label{display:grid;gap:7px;font-size:13px;color:#d8dedf}.orientation-grid select,.orientation-grid input{width:100%;border:1px solid rgba(255,255,255,.18);background:#111a20;color:#f4f1ea;border-radius:10px;padding:12px;font:inherit}.action-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.primary-action,.secondary-action{border:1px solid #d6c19b;border-radius:10px;padding:12px 16px;font:inherit;cursor:pointer}.primary-action{background:#d6c19b;color:#0b1115;font-weight:700}.secondary-action{background:transparent;color:#d6c19b}.route-summary{margin:18px 0 24px}.route-summary[hidden]{display:none}.route-meta{color:#d6c19b;font-size:13px}.first-action{margin-top:14px;border-left:3px solid #d6c19b;padding:10px 14px;background:rgba(214,193,155,.06)}.roadmap{display:grid;gap:12px}.step{border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:18px;background:rgba(255,255,255,.025);display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:start;transition:border-color .2s,background .2s}.step.is-focus{border-color:rgba(214,193,155,.75);background:rgba(214,193,155,.07)}.step input{width:22px;height:22px;margin-top:3px}.step h2{font-size:19px;margin:0 0 6px}.step p{margin:0;color:#aeb8bd;line-height:1.45;font-size:14px}.step .tag{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#d6c19b;border:1px solid rgba(214,193,155,.28);padding:5px 8px;border-radius:99px;white-space:nowrap}.focus-note{display:none;margin-top:8px;color:#d6c19b;font-size:12px}.step.is-focus .focus-note{display:block}.guide-bridge{margin-top:28px}.footnote{margin-top:24px;font-size:12px;color:#7f898f;line-height:1.5}@media(max-width:760px){.hero-roadmap,.orientation-grid{grid-template-columns:1fr}.step{grid-template-columns:auto 1fr}.step .tag{grid-column:2}}
 </style>
 </head>
 <body>
-<header class="topbar"><a class="brand" href="index.html" aria-label="Atlas Exit, accueil"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 5L34 34H27L20 18L13 34H6Z"/></svg><span>ATLAS <b>EXIT</b><small>L’art de choisir ailleurs.</small></span></a><a class="quiet-cta" href="index.html">← Retour à la carte</a></header>
+<header class="topbar"><a class="brand" href="index.html" aria-label="Atlas Exit, accueil"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 5L34 34H27L20 18L13 34H6Z"/></svg><span>ATLAS <b>EXIT</b><small>L’art de choisir ailleurs.</small></span></a><a class="quiet-cta" href="index.html">← Retour à l’explorateur</a></header>
 <main class="prototype-wrap">
-<div class="prototype-banner"><strong>Prototype interne · non-production.</strong> Aucun compte, aucun paiement et aucun partenaire externe n’est activé sur cette page.</div>
+<div class="prototype-banner"><strong>Prototype interne · non-production.</strong> Aucun compte, aucun paiement, aucun contact externe et aucun conseil individualisé ne sont déclenchés ici.</div>
 <section class="hero-roadmap">
-<div><span class="eyebrow">FRANCE → ÉTATS-UNIS · PARCOURS GRATUIT</span><h1>Votre départ,<br>étape par étape.</h1><p>Une roadmap persistante dans ce navigateur pour transformer le guide en actions concrètes, sans créer d’infrastructure coûteuse avant validation de l’usage.</p></div>
-<div class="progress-card"><span class="eyebrow">PROGRESSION</span><strong><span id="doneCount">0</span>/8</strong><div class="bar" aria-hidden="true"><i id="progressBar"></i></div><span id="progressText">Commencez par votre statut d’entrée.</span></div>
+<div><span class="eyebrow">FRANCE → ÉTATS-UNIS · PARCOURS GRATUIT</span><h1>Votre départ,<br>étape par étape.</h1><p>Atlas transforme les grands sujets du guide en un premier ordre d’action personnalisé, puis conserve la progression uniquement dans ce navigateur.</p></div>
+<div class="progress-card"><span class="eyebrow">PROGRESSION</span><strong><span id="doneCount">0</span>/8</strong><div class="bar" aria-hidden="true"><i id="progressBar"></i></div><span id="progressText">Définissez d’abord votre projet.</span></div>
 </section>
-<section class="roadmap" aria-label="Roadmap États-Unis">
-<label class="step"><input type="checkbox" data-step="immigration"><div><h2>1. Clarifier la voie d’immigration</h2><p>Identifier le statut ou visa compatible avec le projet, le droit au travail et les dépendances documentaires.</p></div><span class="tag">J-180 → J-90</span></label>
-<label class="step"><input type="checkbox" data-step="documents"><div><h2>2. Constituer le dossier et le coffre documentaire</h2><p>Rassembler passeport, preuves, actes, traductions, diplômes et justificatifs utiles sans stocker ici de document privé.</p></div><span class="tag">J-120 → J-60</span></label>
-<label class="step"><input type="checkbox" data-step="france"><div><h2>3. Organiser le départ de France</h2><p>Adresse, organismes, assurance, banque et calendrier fiscal de l’année du départ.</p></div><span class="tag">J-90 → J-15</span></label>
-<label class="step"><input type="checkbox" data-step="landing"><div><h2>4. Sécuriser l’atterrissage</h2><p>Budget de départ, logement temporaire, assurance santé et moyen de paiement de secours.</p></div><span class="tag">J-60 → J0</span></label>
-<label class="step"><input type="checkbox" data-step="entry"><div><h2>5. Vérifier l’entrée et l’I-94</h2><p>Contrôler le statut d’admission, la durée autorisée et conserver les preuves utiles après l’arrivée.</p></div><span class="tag">J0 → J+3</span></label>
-<label class="step"><input type="checkbox" data-step="identity"><div><h2>6. Mettre en place l’identité administrative</h2><p>SSN/ITIN/EIN selon le profil, téléphone, adresse et premiers comptes nécessaires.</p></div><span class="tag">J+1 → J+30</span></label>
-<label class="step"><input type="checkbox" data-step="settle"><div><h2>7. Installer la vie quotidienne</h2><p>Logement durable, banque/crédit, santé, DMV/voiture et utilities dans le bon ordre.</p></div><span class="tag">J+7 → J+60</span></label>
-<label class="step"><input type="checkbox" data-step="compliance"><div><h2>8. Stabiliser travail, société et conformité</h2><p>Paie ou activité, fiscalité fédérale/État/locale, obligations France↔USA et calendrier récurrent.</p></div><span class="tag">J+30 → J+90</span></label>
-</section>
-<section class="partner-lab">
-<span class="eyebrow">MONÉTISATION À VALIDER, PAS À FORCER</span><h2>Où Atlas peut-il vraiment vous faire gagner du temps ?</h2><p>Ces boutons ne vendent rien. Ils mesurent seulement les catégories où un utilisateur voudrait comparer une solution ou être orienté vers un partenaire pertinent. C’est le signal à obtenir avant d’automatiser ou de signer des intégrations.</p>
-<div class="intent-grid">
-<button class="intent" type="button" data-intent="health"><strong>Assurance santé</strong><span>Comparer des options adaptées au profil</span></button>
-<button class="intent" type="button" data-intent="banking"><strong>Banque / transfert</strong><span>Compte, carte, change et transfert international</span></button>
-<button class="intent" type="button" data-intent="housing"><strong>Logement</strong><span>Trouver une solution sans historique US</span></button>
-<button class="intent" type="button" data-intent="tax"><strong>Fiscalité</strong><span>Savoir quand une revue humaine devient nécessaire</span></button>
-<button class="intent" type="button" data-intent="immigration"><strong>Immigration</strong><span>Identifier un besoin de conseil professionnel</span></button>
-<button class="intent" type="button" data-intent="relocation"><strong>Installation</strong><span>Services locaux et tâches à forte friction</span></button>
+
+<section class="orientation-card" aria-labelledby="orientationTitle">
+<span class="eyebrow">01 · ORIENTATION</span>
+<h2 id="orientationTitle">Quatre réponses pour cadrer la route.</h2>
+<p>Le questionnaire ne prétend pas choisir un visa ni calculer une situation fiscale. Il sert uniquement à mettre en avant les étapes les plus pertinentes du parcours général.</p>
+<form id="routeForm">
+<div class="orientation-grid">
+<label for="profile">Projet principal
+<select id="profile" name="profile">
+<option value="job">Travailler pour un employeur</option>
+<option value="business">Créer / développer une activité</option>
+<option value="study">Étudier / échange</option>
+<option value="family">Famille / installation durable</option>
+</select></label>
+<label for="horizon">Horizon
+<select id="horizon" name="horizon">
+<option value="0-3">Moins de 3 mois</option>
+<option value="3-6">3 à 6 mois</option>
+<option value="6-12">6 à 12 mois</option>
+<option value="12+">Plus tard</option>
+</select></label>
+<label for="city">Destination envisagée
+<input id="city" name="city" maxlength="80" autocomplete="off" placeholder="New York, Miami, Austin…">
+</label>
+<label for="priority">Priorité du moment
+<select id="priority" name="priority">
+<option value="immigration">Immigration / droit au travail</option>
+<option value="housing">Logement</option>
+<option value="budget">Budget d’arrivée</option>
+<option value="tax">Fiscalité / obligations</option>
+<option value="business">Entreprise / activité</option>
+</select></label>
 </div>
-<p id="intentNotice" class="notice" aria-live="polite"></p>
+<div class="action-row">
+<button class="primary-action" type="submit">Construire mon premier ordre d’action →</button>
+<button class="secondary-action" id="resetRoute" type="button">Réinitialiser</button>
+</div>
+</form>
 </section>
-<p class="footnote">Prototype de validation produit : progression stockée uniquement dans localStorage. Aucune donnée personnelle n’est envoyée à Atlas par cette page. Les clics d’intention peuvent être comptés de façon agrégée via l’analytics déjà présent si celui-ci est disponible.</p>
+
+<section class="route-summary" id="routeSummary" hidden aria-live="polite">
+<span class="eyebrow">02 · VOTRE POINT DE DÉPART</span>
+<h2 id="routeHeadline">Votre route Atlas</h2>
+<p class="route-meta" id="routeMeta"></p>
+<div class="first-action"><strong>Premier réflexe</strong><p id="routeFirstAction"></p></div>
+<p id="routeContext"></p>
+</section>
+
+<section class="roadmap" id="roadmap" aria-label="Roadmap États-Unis">
+<label class="step" data-card-step="immigration"><input type="checkbox" data-step="immigration"><div><h2>1. Clarifier la voie d’immigration</h2><p>Identifier le statut ou visa compatible avec le projet, le droit au travail et les dépendances documentaires.</p><span class="focus-note">À mettre au premier plan pour votre profil actuel.</span></div><span class="tag">J-180 → J-90</span></label>
+<label class="step" data-card-step="documents"><input type="checkbox" data-step="documents"><div><h2>2. Constituer le dossier et le coffre documentaire</h2><p>Rassembler passeport, preuves, actes, traductions, diplômes et justificatifs utiles sans stocker ici de document privé.</p><span class="focus-note">À mettre au premier plan pour votre profil actuel.</span></div><span class="tag">J-120 → J-60</span></label>
+<label class="step" data-card-step="france"><input type="checkbox" data-step="france"><div><h2>3. Organiser le départ de France</h2><p>Adresse, organismes, assurance, banque et calendrier fiscal de l’année du départ.</p><span class="focus-note">À mettre au premier plan pour votre profil actuel.</span></div><span class="tag">J-90 → J-15</span></label>
+<label class="step" data-card-step="landing"><input type="checkbox" data-step="landing"><div><h2>4. Sécuriser l’atterrissage</h2><p>Budget de départ, logement temporaire, assurance santé et moyen de paiement de secours.</p><span class="focus-note">À mettre au premier plan pour votre profil actuel.</span></div><span class="tag">J-60 → J0</span></label>
+<label class="step" data-card-step="entry"><input type="checkbox" data-step="entry"><div><h2>5. Vérifier l’entrée et l’I-94</h2><p>Contrôler le statut d’admission, la durée autorisée et conserver les preuves utiles après l’arrivée.</p><span class="focus-note">À mettre au premier plan pour votre profil actuel.</span></div><span class="tag">J0 → J+3</span></label>
+<label class="step" data-card-step="identity"><input type="checkbox" data-step="identity"><div><h2>6. Mettre en place l’identité administrative</h2><p>SSN/ITIN/EIN selon le profil, téléphone, adresse et premiers comptes nécessaires.</p><span class="focus-note">À mettre au premier plan pour votre profil actuel.</span></div><span class="tag">J+1 → J+30</span></label>
+<label class="step" data-card-step="settle"><input type="checkbox" data-step="settle"><div><h2>7. Installer la vie quotidienne</h2><p>Logement durable, banque/crédit, santé, DMV/voiture et utilities dans le bon ordre.</p><span class="focus-note">À mettre au premier plan pour votre profil actuel.</span></div><span class="tag">J+7 → J+60</span></label>
+<label class="step" data-card-step="compliance"><input type="checkbox" data-step="compliance"><div><h2>8. Stabiliser travail, société et conformité</h2><p>Paie ou activité, fiscalité fédérale/État/locale, obligations France↔USA et calendrier récurrent.</p><span class="focus-note">À mettre au premier plan pour votre profil actuel.</span></div><span class="tag">J+30 → J+90</span></label>
+</section>
+
+<section class="guide-bridge">
+<span class="eyebrow">GUIDE V15 → ACTION</span>
+<h2>Comprendre d’un côté. Avancer de l’autre.</h2>
+<p>La direction V15 conserve les meilleures pages visuelles du guide et les fiches pratiques France→USA. Ce prototype ne remplace pas cette couche de compréhension : il en transforme les thèmes en progression exploitable.</p>
+</section>
+<p class="footnote">État et réponses stockés uniquement dans <code>localStorage</code>. Le prototype ne charge aucun analytics et ne transmet aucune donnée. Les informations restent générales : toute décision juridique ou fiscale individualisée sort de ce périmètre.</p>
 </main>
 </body>
 </html>
