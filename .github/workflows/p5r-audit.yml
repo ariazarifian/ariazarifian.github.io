@@ -17,17 +17,27 @@ jobs:
         with:
           node-version: '26.9.0'
           cache: 'npm'
-      - name: Record toolchain and lock identity
+      - name: Record toolchain and source lock identity
         run: |
+          cp package-lock.json p5r-lock-before.json
           {
             echo "commit=$GITHUB_SHA"
             echo "node=$(node --version)"
             echo "npm=$(npm --version)"
-            echo "lock_blob_expected=50d9eccbe294cbf8516ce24642f8fed78ca4f47a"
-            sha256sum package-lock.json
+            echo "source_lock_blob=50d9eccbe294cbf8516ce24642f8fed78ca4f47a"
+            echo -n "source_lock_sha256="
+            sha256sum package-lock.json | cut -d' ' -f1
           } | tee p5r-versions.txt
-      - name: Install exact lock without lifecycle scripts
-        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Mirror Render npm install without lifecycle scripts
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Record ephemeral install lock delta
+        shell: bash
+        run: |
+          echo -n "post_install_lock_sha256=" >> p5r-versions.txt
+          sha256sum package-lock.json | cut -d' ' -f1 >> p5r-versions.txt
+          git diff -- package-lock.json > p5r-lock-delta.patch || true
+          git status --short > p5r-git-status.txt
+          cat p5r-git-status.txt
       - name: Capture audit JSON
         shell: bash
         run: |
@@ -73,5 +83,8 @@ jobs:
             p5r-explain.txt
             p5r-tree.json
             p5r-versions.txt
+            p5r-lock-before.json
+            p5r-lock-delta.patch
+            p5r-git-status.txt
           if-no-files-found: error
           retention-days: 7
