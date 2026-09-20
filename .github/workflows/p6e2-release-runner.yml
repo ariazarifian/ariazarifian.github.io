@@ -1,0 +1,212 @@
+name: P6-E2 bounded release runner
+
+on:
+  push:
+    branches:
+      - 'ops/p6e2-release-runner-20260920-1635'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROD_BRANCH: ops/atlas-exit-20260914
+      EXPECTED_HEAD: 41998297595d429605b9413dfacdcf28202bfe38
+      CANDIDATE_URL: 'https://sdmntprwestus.oaiusercontent.com/files/00000000-4490-8230-9f18-e7528bb23363/raw?se=2026-09-20T14%3A46%3A01Z&sp=r&sv=2026-02-06&sr=b&scid=bfa65927-4d80-5b66-9d16-a5f5c5d12102&skoid=1e6af1bf-6b08-4a04-8919-15773e7e7024&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-19T19%3A24%3A05Z&ske=2026-09-20T19%3A24%3A05Z&sks=b&skv=2026-02-06&sig=M19KX5luNEwWdhBzFQ1YECZldHVmlC/WFAleTQh4wf4%3D'
+      ROLLBACK_URL: 'https://sdmntprwestus.oaiusercontent.com/files/00000000-e974-8230-95e4-cbe5df3b25ed/raw?se=2026-09-20T14%3A46%3A05Z&sp=r&sv=2026-02-06&sr=b&scid=6a78284e-f28f-52de-8f17-0fc52364a672&skoid=1e6af1bf-6b08-4a04-8919-15773e7e7024&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-20T14%3A27%3A21Z&ske=2026-09-21T14%3A27%3A21Z&sks=b&skv=2026-02-06&sig=a7nPN3Tegdki1TO4/SHotpIHpgilvnyJUcEoWbyxwvY%3D'
+      WRAP_PUBKEY_B64: 'LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUEwazdVNWZ5ZldJYk8zdmFjRlc5dQpIN0d0N1RwcFoyV1gyZ1NOdUxaazRxZjRyVmk1eUJ0SWpXZ0RMMVk2YUlCM0hLcDlpbzFzTkUrSGZjNXdJWVNlCmVYb3BTeFBSYzRxYldkUGZWejhEQXUza29CY25WUTNHd3RvWGJxTXg5NUp2Y2FFU2JOb2g1akkrbFA1M1E3N1oKVlY0TWtMVHB5MnJjQ2YrdXg1MTY0NDBLL1ZjNUlZZU5qUHBhM1ZVSG9WblhKYS90NkVadGhkMVI0bGZvMVJwOQo3ZWlUbU5FV3dzYUV2eTJKTWhXOWd6RlFLMDdFQUF5TTc2SkpSRHhYempLTXpvaHFEZUJSVVQ1TFpvcnhzN3I2CjJHaTVGbk9qOUVOOWhzZUMwWHlicUlsUURjTUFuc0FhTWdSSDJpN2hqNEI5bi9kam1SbUhDVDY4d29UUXpPMWgKOHdJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg=='
+      CANDIDATE_SHA256: 0ad900508565222af12adf04a7fe7a66e774c65258eebeb1d5aa77d5e352016f
+      CANDIDATE_BYTES: '8010883'
+      ROLLBACK_SHA256: 825bd8b24eb22f9ff03f67016bc414f054334b243a02d98a071c25b392c3543f
+      ROLLBACK_BYTES: '8011150'
+      FREE_AAD: atlas-guide-usa-free-v15:gzip
+    steps:
+      - name: Checkout exact production branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/atlas-exit-20260914
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify release base and download approved/rollback PDFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          curl --fail --silent --show-error --location "$CANDIDATE_URL" -o /tmp/candidate.pdf
+          curl --fail --silent --show-error --location "$ROLLBACK_URL" -o /tmp/rollback.pdf
+          test "$(stat -c%s /tmp/candidate.pdf)" = "$CANDIDATE_BYTES"
+          test "$(sha256sum /tmp/candidate.pdf | awk '{print $1}')" = "$CANDIDATE_SHA256"
+          test "$(stat -c%s /tmp/rollback.pdf)" = "$ROLLBACK_BYTES"
+          test "$(sha256sum /tmp/rollback.pdf | awk '{print $1}')" = "$ROLLBACK_SHA256"
+
+      - name: Generate one-key candidate and rollback ciphertext sets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const crypto = require('crypto');
+          const zlib = require('zlib');
+          const path = require('path');
+
+          const aad = process.env.FREE_AAD;
+          const candidate = fs.readFileSync('/tmp/candidate.pdf');
+          const rollback = fs.readFileSync('/tmp/rollback.pdf');
+          const sha = b => crypto.createHash('sha256').update(b).digest('hex');
+          if (candidate.length !== Number(process.env.CANDIDATE_BYTES) || sha(candidate) !== process.env.CANDIDATE_SHA256) throw new Error('candidate preflight mismatch');
+          if (rollback.length !== Number(process.env.ROLLBACK_BYTES) || sha(rollback) !== process.env.ROLLBACK_SHA256) throw new Error('rollback preflight mismatch');
+
+          const key = crypto.randomBytes(32);
+          const pub = Buffer.from(process.env.WRAP_PUBKEY_B64, 'base64').toString('utf8');
+          fs.mkdirSync('/tmp/release', { recursive: true });
+          fs.mkdirSync('/tmp/rollback-ciphertext', { recursive: true });
+
+          function encryptPdf(pdf) {
+            const compressed = zlib.gzipSync(pdf, { level: 9 });
+            const nonce = crypto.randomBytes(12);
+            const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
+            cipher.setAAD(Buffer.from(aad, 'utf8'));
+            const ciphertext = Buffer.concat([cipher.update(compressed), cipher.final()]);
+            const tag = cipher.getAuthTag();
+            const b64 = ciphertext.toString('base64');
+            const split = Math.min(b64.length, Math.ceil((b64.length / 2) / 4) * 4);
+            return {
+              compressed, ciphertext, nonce, tag, b64,
+              chunks: [b64.slice(0, split), b64.slice(split)]
+            };
+          }
+
+          const prod = encryptPdf(candidate);
+          const rb = encryptPdf(rollback);
+          if (prod.nonce.equals(rb.nonce)) throw new Error('nonce collision');
+
+          const prodDir = 'atlas-delivery/payload-free-v15';
+          fs.writeFileSync(path.join(prodDir, 'chunk1.txt'), prod.chunks[0]);
+          fs.writeFileSync(path.join(prodDir, 'chunk2.txt'), prod.chunks[1]);
+          const prodManifest = {
+            edition: '15.0',
+            source_pdf_bytes: candidate.length,
+            source_pdf_sha256: sha(candidate),
+            gzip_bytes: prod.compressed.length,
+            ciphertext_bytes: prod.ciphertext.length,
+            ciphertext_sha256: sha(prod.ciphertext),
+            nonce_b64: prod.nonce.toString('base64'),
+            tag_b64: prod.tag.toString('base64'),
+            aad,
+            key_source: 'FREE_GUIDE_KEY_HEX Render environment only',
+            key_committed: false,
+            base64_chars: prod.b64.length,
+            chunk_count: 2,
+            chunk_chars_each: prod.chunks.map(x => x.length)
+          };
+          fs.writeFileSync(path.join(prodDir, 'manifest.json'), JSON.stringify(prodManifest, null, 2) + '\n');
+
+          const serverPath = 'atlas-delivery/server.js';
+          let server = fs.readFileSync(serverPath, 'utf8');
+          const replacements = [
+            ["const FREE_GUIDE_SHA256 = '825bd8b24eb22f9ff03f67016bc414f054334b243a02d98a071c25b392c3543f';", `const FREE_GUIDE_SHA256 = '${sha(candidate)}';`],
+            ["const FREE_GUIDE_NONCE_B64 = 'Sq2tNt+FRcT5P8tA';", `const FREE_GUIDE_NONCE_B64 = '${prod.nonce.toString('base64')}';`],
+            ["const FREE_GUIDE_TAG_B64 = 'FnBHjMbnkNDQWUx8eEDrFw==';", `const FREE_GUIDE_TAG_B64 = '${prod.tag.toString('base64')}';`]
+          ];
+          for (const [oldText, newText] of replacements) {
+            const count = server.split(oldText).length - 1;
+            if (count !== 1) throw new Error(`server replacement count ${count} for ${oldText}`);
+            server = server.replace(oldText, newText);
+          }
+          fs.writeFileSync(serverPath, server);
+
+          const rbManifest = {
+            edition: '15.0',
+            source_pdf_bytes: rollback.length,
+            source_pdf_sha256: sha(rollback),
+            gzip_bytes: rb.compressed.length,
+            ciphertext_bytes: rb.ciphertext.length,
+            ciphertext_sha256: sha(rb.ciphertext),
+            nonce_b64: rb.nonce.toString('base64'),
+            tag_b64: rb.tag.toString('base64'),
+            aad,
+            key_source: 'same FREE_GUIDE_KEY_HEX as P6-E2 production release',
+            key_committed: false,
+            base64_chars: rb.b64.length,
+            chunk_count: 2,
+            chunk_chars_each: rb.chunks.map(x => x.length)
+          };
+          fs.writeFileSync('/tmp/rollback-ciphertext/chunk1.txt', rb.chunks[0]);
+          fs.writeFileSync('/tmp/rollback-ciphertext/chunk2.txt', rb.chunks[1]);
+          fs.writeFileSync('/tmp/rollback-ciphertext/manifest.json', JSON.stringify(rbManifest, null, 2) + '\n');
+          fs.writeFileSync('/tmp/rollback-ciphertext/server_constants.json', JSON.stringify({
+            FREE_GUIDE_SHA256: sha(rollback),
+            FREE_GUIDE_NONCE_B64: rb.nonce.toString('base64'),
+            FREE_GUIDE_TAG_B64: rb.tag.toString('base64'),
+            FREE_GUIDE_EDITION: '15.0',
+            FREE_GUIDE_AAD: aad
+          }, null, 2) + '\n');
+
+          const wrapped = crypto.publicEncrypt({
+            key: pub,
+            padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+            oaepHash: 'sha256'
+          }, key);
+          fs.writeFileSync('/tmp/release/key.wrap.b64', wrapped.toString('base64') + '\n');
+          fs.writeFileSync('/tmp/release/release.json', JSON.stringify({
+            approved_source: { bytes: candidate.length, sha256: sha(candidate) },
+            previous_canonical: { bytes: rollback.length, sha256: sha(rollback) },
+            production_ciphertext: prodManifest,
+            rollback_ciphertext: rbManifest,
+            key_persisted_plaintext: false,
+            server_allowed_changes: ['FREE_GUIDE_SHA256','FREE_GUIDE_NONCE_B64','FREE_GUIDE_TAG_B64']
+          }, null, 2) + '\n');
+          NODE
+
+      - name: Verify exact four-path diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            atlas-delivery/payload-free-v15/chunk1.txt \
+            atlas-delivery/payload-free-v15/chunk2.txt \
+            atlas-delivery/payload-free-v15/manifest.json \
+            atlas-delivery/server.js | sort)"
+          test "$actual" = "$expected"
+          git diff --unified=0 -- atlas-delivery/server.js > /tmp/server.diff
+          test "$(grep -c '^[-+]const FREE_GUIDE_SHA256' /tmp/server.diff)" = 2
+          test "$(grep -c '^[-+]const FREE_GUIDE_NONCE_B64' /tmp/server.diff)" = 2
+          test "$(grep -c '^[-+]const FREE_GUIDE_TAG_B64' /tmp/server.diff)" = 2
+          test "$(grep -E '^[-+]const ' /tmp/server.diff | grep -Ev 'FREE_GUIDE_(SHA256|NONCE_B64|TAG_B64)' | wc -l)" = 0
+
+      - name: Commit exact bounded release to production branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'ATLAS PRODUCT EXECUTOR'
+          git config user.email '71772355+ariazarifian@users.noreply.github.com'
+          git add atlas-delivery/server.js atlas-delivery/payload-free-v15/chunk1.txt atlas-delivery/payload-free-v15/chunk2.txt atlas-delivery/payload-free-v15/manifest.json
+          git commit -m 'P6-E2: publish approved I-94 V15 free payload'
+          new_commit="$(git rev-parse HEAD)"
+          git diff --exit-code HEAD -- .
+          git push origin HEAD:"$PROD_BRANCH"
+          printf '%s\n' "$new_commit" > /tmp/release/commit.txt
+          printf '%s\n' "$EXPECTED_HEAD" > /tmp/release/parent.txt
+          git diff-tree --no-commit-id --name-only -r "$new_commit" | sort > /tmp/release/changed-paths.txt
+          test "$(wc -l < /tmp/release/changed-paths.txt | tr -d ' ')" = 4
+
+      - name: Upload wrapped-key release control
+        uses: actions/upload-artifact@v4
+        with:
+          name: p6e2-release-control
+          path: /tmp/release
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload rollback ciphertext package
+        uses: actions/upload-artifact@v4
+        with:
+          name: p6e2-rollback-ciphertext
+          path: /tmp/rollback-ciphertext
+          if-no-files-found: error
+          retention-days: 30
