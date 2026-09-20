@@ -1,0 +1,107 @@
+name: ATLAS P5DS0 Production Baseline
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds0-baseline-20260920
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-browser-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout production-equivalent source
+        uses: actions/checkout@v4
+
+      - name: Verify core product bytes match production lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object atlas-exit/index.html)" = "081f9ca898081803b46f7ff3e4c520cbf072a67c"
+          test "$(git hash-object atlas-exit/offres.html)" = "daba20cecec450a132ec1b3ccb08c382c23475c6"
+          test "$(git hash-object atlas-exit/parcours-usa.html)" = "b6b43f47e367bd9ab2670dcb73a4d218892c5041"
+          test "$(git hash-object atlas-exit/accompagnement.html)" = "34843e304f401ee4932d9022e0a44d44dadf0750"
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Capture public production baseline
+        shell: bash
+        run: |
+          cat > /tmp/p5ds0_baseline.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          base = 'https://atlas-expat.fr'
+          surfaces = {
+            'explorer': '/index.html',
+            'guide': '/offres.html',
+            'roadmap': '/parcours-usa.html',
+            'accompagnement': '/accompagnement.html',
+          }
+          viewports = {
+            'desktop': {'width': 1440, 'height': 1000},
+            'mobile': {'width': 390, 'height': 844},
+          }
+          out = Path('qa-artifacts')
+          out.mkdir(exist_ok=True)
+          report = {'base': base, 'surfaces': {}}
+
+          with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            for surface, path in surfaces.items():
+              report['surfaces'][surface] = {}
+              for label, viewport in viewports.items():
+                page = browser.new_page(viewport=viewport)
+                response = page.goto(base + path, wait_until='domcontentloaded', timeout=45000)
+                assert response is not None and response.ok, f'{surface}/{label}: HTTP {response.status if response else "none"}'
+                page.wait_for_timeout(1200)
+                metrics = page.evaluate('''() => {
+                  const h1 = document.querySelector('h1');
+                  const body = document.body;
+                  const nav = document.querySelector('.product-nav, .topbar');
+                  const footer = document.querySelector('.site-footer, body > footer, footer, .sidebar-footer');
+                  const css = Array.from(document.styleSheets).map(s => s.href || 'inline');
+                  const r = el => el ? el.getBoundingClientRect() : null;
+                  return {
+                    title: document.title,
+                    viewport: {width: innerWidth, height: innerHeight},
+                    scroll: {doc: document.documentElement.scrollWidth, body: document.body.scrollWidth},
+                    bodyFont: getComputedStyle(body).fontFamily,
+                    bodyFontSize: getComputedStyle(body).fontSize,
+                    h1Font: h1 ? getComputedStyle(h1).fontFamily : null,
+                    h1FontSize: h1 ? getComputedStyle(h1).fontSize : null,
+                    navRect: r(nav),
+                    footerRect: r(footer),
+                    stylesheets: css,
+                    inlineStyleBlocks: document.querySelectorAll('style').length
+                  };
+                }''')
+                assert metrics['scroll']['doc'] <= viewport['width'] + 1, (surface, label, metrics)
+                assert metrics['scroll']['body'] <= viewport['width'] + 1, (surface, label, metrics)
+                shot = out / f'{surface}-{label}.png'
+                page.screenshot(path=str(shot), full_page=True)
+                metrics['httpStatus'] = response.status
+                metrics['screenshot'] = str(shot)
+                report['surfaces'][surface][label] = metrics
+                page.close()
+            browser.close()
+
+          Path('qa-artifacts/baseline.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+          python /tmp/p5ds0_baseline.py
+
+      - name: Upload baseline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5ds0-production-baseline
+          path: qa-artifacts
+          if-no-files-found: error
