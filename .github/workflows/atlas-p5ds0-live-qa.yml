@@ -1,0 +1,140 @@
+name: ATLAS P5DS0 Live QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds0-live-qa-20260920
+
+permissions:
+  contents: read
+
+jobs:
+  public-browser-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify exact released product bytes in checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object atlas-exit/accompagnement.html)" = "42194ffd00dd2839fadaae34b720bcd9d377d526"
+          test "$(git hash-object atlas-exit/atlas-ui.css)" = "a0723e252c434322cdf8ad780f097831db8ff8e9"
+          test "$(git hash-object atlas-exit/assets/fonts/Manrope-Variable.ttf)" = "75274da58537d6123b14f2cd0c355ad4681fc2b3"
+          test "$(git hash-object atlas-exit/assets/fonts/Manrope-OFL.txt)" = "e271172a9ed0cddc895aabb6509f1c7d880b492d"
+          test "$(git hash-object atlas-exit/programmes.js)" = "9e228ee55eb967eb890d6c4efa10ec7918a5553d"
+          ! grep -R -nE 'fonts\.googleapis\.com|fonts\.gstatic\.com' atlas-exit/accompagnement.html atlas-exit/atlas-ui.css
+          grep -q "style-src 'self'; font-src 'self'" atlas-exit/accompagnement.html
+
+      - name: Verify public served bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://atlas-expat.fr'
+          bust='atlasqa=4b815e8a230d1ab990dab396434f1230e48c2f99'
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$base/accompagnement.html?$bust" -o /tmp/accompagnement.html
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$base/atlas-ui.css?$bust" -o /tmp/atlas-ui.css
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$base/assets/fonts/Manrope-Variable.ttf?$bust" -o /tmp/Manrope-Variable.ttf
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$base/assets/fonts/Manrope-OFL.txt?$bust" -o /tmp/Manrope-OFL.txt
+          test "$(git hash-object /tmp/accompagnement.html)" = "42194ffd00dd2839fadaae34b720bcd9d377d526"
+          test "$(git hash-object /tmp/atlas-ui.css)" = "a0723e252c434322cdf8ad780f097831db8ff8e9"
+          test "$(git hash-object /tmp/Manrope-Variable.ttf)" = "75274da58537d6123b14f2cd0c355ad4681fc2b3"
+          test "$(git hash-object /tmp/Manrope-OFL.txt)" = "e271172a9ed0cddc895aabb6509f1c7d880b492d"
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Public browser gate
+        shell: bash
+        run: |
+          cat > /tmp/qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          URL='https://atlas-expat.fr/accompagnement.html?atlasqa=4b815e8a230d1ab990dab396434f1230e48c2f99'
+          expected={
+            'guided':{'title':'Projet USA','status':'En préparation','price':'990 €','body':'Parcours accompagné prévu. Le contenu, les séances, les intervenants et les conditions seront confirmés avant vente.'},
+            'coordination':{'title':'Coordination','status':'Sur étude · non ouvert','price':'2 500 €','body':'Organisation administrative prévue, sur périmètre écrit. Aucune représentation juridique ni obtention de visa garantie.'},
+            'signature':{'title':'Signature','status':'Sur étude · non ouvert','price':'5 000 €','body':'Coordination renforcée prévue pour un dossier complexe. Disponibilité, périmètre et intervenants à confirmer avant engagement.'},
+          }
+          out=Path('qa-artifacts'); out.mkdir(exist_ok=True)
+          report={'production':'4b815e8a230d1ab990dab396434f1230e48c2f99','url':URL,'viewports':{}}
+          with sync_playwright() as p:
+            browser=p.chromium.launch(headless=True)
+            for label,viewport in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+              page=browser.new_page(viewport=viewport)
+              requests=[]
+              page.on('request', lambda req: requests.append(req.url))
+              res=page.goto(URL,wait_until='domcontentloaded',timeout=30000)
+              assert res and res.ok, (label, res.status if res else None)
+              page.wait_for_timeout(1200)
+              page.wait_for_selector('button[data-program="guided"]',state='visible')
+              shell=page.evaluate('''() => {const b=getComputedStyle(document.body),h=getComputedStyle(document.querySelector('h1'));return {docWidth:document.documentElement.scrollWidth,bodyWidth:document.body.scrollWidth,vw:innerWidth,bodyFont:b.fontFamily,h1Font:h.fontFamily,fontsStatus:document.fonts.status,manropeReady:document.fonts.check('16px Manrope'),coverLoaded:(()=>{const x=document.querySelector('.ac-proof__cover');return !!x&&x.complete&&x.naturalWidth>0})(),inlineStyleBlocks:document.querySelectorAll('style').length}}''')
+              font_resources=[u for u in requests if 'Manrope-Variable.ttf' in u]
+              forbidden=[u for u in requests if 'fonts.googleapis.com' in u or 'fonts.gstatic.com' in u]
+              shell['fontResources']=font_resources; shell['forbiddenFontResources']=forbidden
+              assert shell['docWidth']<=viewport['width']+1 and shell['bodyWidth']<=viewport['width']+1,shell
+              assert shell['fontsStatus']=='loaded' and shell['manropeReady'],shell
+              assert 'Manrope' in shell['bodyFont'] and 'Manrope' in shell['h1Font'],shell
+              assert 'Georgia' not in shell['h1Font'] and 'Times' not in shell['h1Font'],shell
+              assert font_resources and all('atlas-expat.fr' in u for u in font_resources),shell
+              assert not forbidden,shell
+              assert shell['coverLoaded'] and shell['inlineStyleBlocks']==0,shell
+
+              nav=[]; links=page.locator('.atlas-shell__nav a'); assert links.count()==4
+              for i in range(4):
+                link=links.nth(i); box=link.bounding_box(); fs=link.evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')
+                assert box and box['x']>=-1 and box['x']+box['width']<=viewport['width']+1,(label,box)
+                if label=='mobile':
+                  assert fs>=13,(link.text_content(),fs)
+                  assert box['height']>=42,(link.text_content(),box)
+                nav.append({'text':link.text_content().strip(),'fontSize':fs,'box':box})
+              if label=='mobile':
+                assert nav[0]['box']['y']==nav[1]['box']['y']
+                assert nav[2]['box']['y']==nav[3]['box']['y']
+                assert nav[2]['box']['y']>nav[0]['box']['y']
+
+              page.screenshot(path=str(out/f'{label}-page.png'),full_page=True)
+              vr={'httpStatus':res.status,'shell':shell,'nav':nav,'programmes':{}}
+              for key,exp in expected.items():
+                button=page.locator(f'button[data-program="{key}"]'); service=button.locator('xpath=ancestor::article[1]')
+                status=service.locator('.ac-status').text_content().strip(); price=service.locator('.ac-price').text_content().strip()
+                assert status==exp['status'],(key,status,exp['status'])
+                assert price==exp['price'],(key,price,exp['price'])
+                button.scroll_into_view_if_needed(); button.click(); page.wait_for_timeout(80)
+                dialog=page.locator('#programmeDialog'); assert dialog.evaluate('el=>el.open')
+                title=page.locator('#programmeTitle').text_content().strip(); body=page.locator('#programmeContent').text_content().strip(); cta=page.locator('#programmeContact')
+                assert title==exp['title'] and body==exp['body'],(key,title,body)
+                assert cta.text_content().strip()=='Parler de mon projet ↗' and cta.get_attribute('href')=='start.html'
+                geom=page.evaluate('''() => {const d=document.querySelector('#programmeDialog').getBoundingClientRect(),x=document.querySelector('#closeProgramme').getBoundingClientRect();return {dialog:{left:d.left,right:d.right,top:d.top,bottom:d.bottom},close:{left:x.left,right:x.right,top:x.top,bottom:x.bottom},vw:innerWidth,vh:innerHeight,sw:document.documentElement.scrollWidth}}''')
+                assert geom['dialog']['left']>=-1 and geom['dialog']['right']<=geom['vw']+1,geom
+                assert geom['close']['left']>=0 and geom['close']['right']<=geom['vw'] and geom['close']['top']>=0 and geom['close']['bottom']<=geom['vh'],geom
+                assert geom['sw']<=geom['vw']+1,geom
+                page.screenshot(path=str(out/f'{label}-modal-{key}.png'))
+                page.locator('#closeProgramme').click(); page.wait_for_timeout(50); assert not dialog.evaluate('el=>el.open')
+                vr['programmes'][key]={'status':status,'price':price,'title':title,'closeButton':True,'geometry':geom}
+
+              page.locator('button[data-program="guided"]').scroll_into_view_if_needed(); page.locator('button[data-program="guided"]').click(); page.wait_for_timeout(50); page.keyboard.press('Escape'); page.wait_for_timeout(50)
+              assert not page.locator('#programmeDialog').evaluate('el=>el.open'); vr['escapeClose']=True
+              reduced=browser.new_page(viewport=viewport,reduced_motion='reduce'); r2=reduced.goto(URL,wait_until='domcontentloaded',timeout=30000); assert r2 and r2.ok; reduced.wait_for_timeout(300)
+              duration=reduced.locator('.atlas-button').first.evaluate('el=>getComputedStyle(el).transitionDuration'); reduced.close()
+              assert duration in ('0s','0.00001s','0.01ms','1e-05s'),duration; vr['reducedMotionTransitionDuration']=duration
+              report['viewports'][label]=vr; page.close()
+            browser.close()
+          Path('qa-artifacts/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('P5DS0_PUBLIC_BROWSER_PASS')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/qa.py
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5ds0-live-qa
+          path: qa-artifacts
+          if-no-files-found: error
