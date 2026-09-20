@@ -1,0 +1,93 @@
+name: ATLAS P5DS0 Fix Build
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds0-fix-build-20260920
+
+permissions:
+  contents: write
+
+jobs:
+  build-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Vendor official Manrope and apply bounded shell fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # A second push is expected after the build commit. Exit cleanly instead of looping.
+          if test -f atlas-exit/assets/fonts/Manrope-Variable.ttf \
+             && grep -q '@font-face' atlas-exit/atlas-ui.css \
+             && ! grep -q 'fonts.googleapis.com' atlas-exit/accompagnement.html; then
+            echo 'P5DS0 fix already materialized; no further commit needed.'
+            exit 0
+          fi
+
+          mkdir -p atlas-exit/assets/fonts
+          curl --fail --location --silent --show-error \
+            'https://raw.githubusercontent.com/google/fonts/main/ofl/manrope/Manrope%5Bwght%5D.ttf' \
+            --output atlas-exit/assets/fonts/Manrope-Variable.ttf
+          curl --fail --location --silent --show-error \
+            'https://raw.githubusercontent.com/google/fonts/main/ofl/manrope/OFL.txt' \
+            --output atlas-exit/assets/fonts/Manrope-OFL.txt
+
+          # Integrity is pinned to the exact official google/fonts Git blobs reviewed by Chief/Executor.
+          test "$(git hash-object atlas-exit/assets/fonts/Manrope-Variable.ttf)" = '75274da58537d6123b14f2cd0c355ad4681fc2b3'
+          test "$(git hash-object atlas-exit/assets/fonts/Manrope-OFL.txt)" = 'e271172a9ed0cddc895aabb6509f1c7d880b492d'
+
+          python - <<'PY'
+          from pathlib import Path
+
+          html_path = Path('atlas-exit/accompagnement.html')
+          html = html_path.read_text(encoding='utf-8')
+          old_csp = "style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;"
+          new_csp = "style-src 'self'; font-src 'self';"
+          if old_csp not in html:
+              raise SystemExit('expected Google Fonts CSP fragment missing')
+          html = html.replace(old_csp, new_csp, 1)
+          for line in (
+              '<link rel="preconnect" href="https://fonts.googleapis.com">\n',
+              '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n',
+              '<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">\n',
+          ):
+              if line not in html:
+                  raise SystemExit(f'expected font link missing: {line.strip()}')
+              html = html.replace(line, '', 1)
+          html = html.replace('atlas-ui.css?v=p5ds0-1', 'atlas-ui.css?v=p5ds0-2', 1)
+          html_path.write_text(html, encoding='utf-8')
+
+          css_path = Path('atlas-exit/atlas-ui.css')
+          css = css_path.read_text(encoding='utf-8')
+          face = '''@font-face{\n  font-family:"Manrope";\n  src:url("assets/fonts/Manrope-Variable.ttf") format("truetype");\n  font-style:normal;\n  font-weight:200 800;\n  font-display:swap;\n}\n'''
+          if not css.startswith(':root{'):
+              raise SystemExit('unexpected atlas-ui.css prefix')
+          css = face + css
+
+          old_mobile = '''  .atlas-shell__inner{min-height:auto;padding:13px 0 10px;display:grid;grid-template-columns:1fr;gap:8px}\n  .atlas-wordmark{font-size:14px}\n  .atlas-wordmark__mark{width:25px;height:25px}\n  .atlas-shell__nav{justify-content:flex-start;margin-inline:-3px;padding:0 3px 2px;gap:3px}\n  .atlas-shell__nav a{padding:8px 9px;font-size:11px}\n'''
+          new_mobile = '''  .atlas-shell__inner{min-height:auto;padding:12px 0 12px;display:grid;grid-template-columns:1fr;gap:10px}\n  .atlas-wordmark{font-size:14px}\n  .atlas-wordmark__mark{width:25px;height:25px}\n  .atlas-shell__nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;justify-content:stretch;margin:2px 0 0;padding:10px 0 0;gap:6px;border-top:1px solid var(--atlas-line);overflow:visible}\n  .atlas-shell__nav a{display:flex;align-items:center;justify-content:center;min-height:42px;padding:9px 10px;font-size:13px;line-height:1.22;text-align:center;white-space:normal}\n'''
+          if old_mobile not in css:
+              raise SystemExit('expected 11px mobile-nav block missing')
+          css = css.replace(old_mobile, new_mobile, 1)
+          css_path.write_text(css, encoding='utf-8')
+          PY
+
+          # Static closure checks before writing the build commit.
+          ! grep -R -nE 'fonts\.googleapis\.com|fonts\.gstatic\.com' atlas-exit/accompagnement.html atlas-exit/atlas-ui.css
+          grep -q "font-src 'self'" atlas-exit/accompagnement.html
+          grep -q 'assets/fonts/Manrope-Variable.ttf' atlas-exit/atlas-ui.css
+          grep -q 'font-size:13px' atlas-exit/atlas-ui.css
+          ! grep -q 'atlas-shell__nav a{padding:8px 9px;font-size:11px}' atlas-exit/atlas-ui.css
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add atlas-exit/accompagnement.html atlas-exit/atlas-ui.css atlas-exit/assets/fonts/Manrope-Variable.ttf atlas-exit/assets/fonts/Manrope-OFL.txt
+          git commit -m 'P5DS0: self-host typography and fix mobile shell'
+          git push origin HEAD:ops/atlas-p5ds0-fix-build-20260920
