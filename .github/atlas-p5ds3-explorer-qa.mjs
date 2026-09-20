@@ -115,7 +115,10 @@ try {
   const mobileFilters=mp.locator('#mobileFilters'); assert(await mobileFilters.isVisible(),'Mobile filters control visible');
   await mobileFilters.click();
   assert(await mobileFilters.getAttribute('aria-expanded')==='true','Mobile filters control expands sidebar');
+  await mp.waitForTimeout(450);
   assert(await mp.locator('#sidebar').isVisible(),'Mobile filter sidebar visible after expansion');
+  const sb=await mp.locator('#sidebar').boundingBox();
+  assert(sb && sb.x>=-1 && sb.x+sb.width<=390.5,'Mobile filter sidebar settles fully inside viewport',JSON.stringify(sb));
   await mp.screenshot({path:path.join(out,'mobile-filters.png'),fullPage:true});
   await mp.locator('#countrySearch').fill('Portugal');
   await mp.waitForFunction(()=>!!document.querySelector('#results [data-country="PRT"]'));
@@ -129,7 +132,8 @@ try {
   const reduce = await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
   const rp=await reduce.newPage(); await waitReady(rp);
   const motion=await rp.locator('.explorer-shell__compare').evaluate(el=>({td:getComputedStyle(el).transitionDuration,ad:getComputedStyle(el).animationDuration}));
-  assert(/0\.01ms|0s/.test(motion.td),'Reduced-motion transition gate',JSON.stringify(motion));
+  const seconds = value => value.trim().endsWith('ms') ? parseFloat(value)/1000 : parseFloat(value);
+  assert(motion.td.split(',').every(v=>seconds(v)<=.001) && motion.ad.split(',').every(v=>seconds(v)<=.001),'Reduced-motion transition gate',JSON.stringify(motion));
   await reduce.close();
 
   assert(evidence.pageErrors.length===0,'No uncaught browser page errors',JSON.stringify(evidence.pageErrors));
