@@ -1,0 +1,191 @@
+name: ATLAS P5DS0 Candidate QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds0-qa-20260920
+
+permissions:
+  contents: read
+
+jobs:
+  candidate-browser-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout QA branch
+        uses: actions/checkout@v4
+
+      - name: Verify candidate and untouched product bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object atlas-exit/atlas-ui.css)" = "d0551e09ba8f01847867ada94dfb2b5fd87808f8"
+          test "$(git hash-object atlas-exit/accompagnement.html)" = "2ebe3b2566c85469ab45e8ccc43490ee0c8ba748"
+          test "$(git hash-object atlas-exit/programmes.js)" = "9e228ee55eb967eb890d6c4efa10ec7918a5553d"
+          test "$(git hash-object atlas-exit/index.html)" = "081f9ca898081803b46f7ff3e4c520cbf072a67c"
+          test "$(git hash-object atlas-exit/offres.html)" = "daba20cecec450a132ec1b3ccb08c382c23475c6"
+          test "$(git hash-object atlas-exit/parcours-usa.html)" = "b6b43f47e367bd9ab2670dcb73a4d218892c5041"
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Start exact-artifact local server
+        shell: bash
+        run: |
+          python -m http.server 4173 --directory atlas-exit >/tmp/atlas-p5ds0-http.log 2>&1 &
+          echo $! > /tmp/atlas-p5ds0-http.pid
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/accompagnement.html >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/atlas-p5ds0-http.log
+          exit 1
+
+      - name: Run real-browser design and interaction QA
+        shell: bash
+        run: |
+          cat > /tmp/p5ds0_candidate_qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          URL = 'http://127.0.0.1:4173/accompagnement.html'
+          expected = {
+            'guided': {
+              'title':'Projet USA',
+              'status':'En préparation',
+              'price':'990 €',
+              'body':'Parcours accompagné prévu. Le contenu, les séances, les intervenants et les conditions seront confirmés avant vente.'
+            },
+            'coordination': {
+              'title':'Coordination',
+              'status':'Sur étude · non ouvert',
+              'price':'2 500 €',
+              'body':'Organisation administrative prévue, sur périmètre écrit. Aucune représentation juridique ni obtention de visa garantie.'
+            },
+            'signature': {
+              'title':'Signature',
+              'status':'Sur étude · non ouvert',
+              'price':'5 000 €',
+              'body':'Coordination renforcée prévue pour un dossier complexe. Disponibilité, périmètre et intervenants à confirmer avant engagement.'
+            }
+          }
+          out = Path('qa-artifacts')
+          out.mkdir(exist_ok=True)
+          report = {'url': URL, 'viewports': {}}
+
+          with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            for label, viewport in [('desktop', {'width':1440,'height':1000}), ('mobile', {'width':390,'height':844})]:
+              page = browser.new_page(viewport=viewport)
+              response = page.goto(URL, wait_until='domcontentloaded', timeout=30000)
+              assert response is not None and response.ok, f'{label}: HTTP {response.status if response else "none"}'
+              page.wait_for_function('document.fonts.status === "loaded"', timeout=30000)
+              page.wait_for_selector('button[data-program="guided"]', state='visible')
+              assert page.title() == 'Accompagnement — Atlas Exit'
+
+              shell = page.evaluate('''() => {
+                const bodyStyle = getComputedStyle(document.body);
+                const h1Style = getComputedStyle(document.querySelector('h1'));
+                const nav = document.querySelector('.atlas-shell');
+                const cover = document.querySelector('.ac-proof__cover');
+                return {
+                  docWidth: document.documentElement.scrollWidth,
+                  bodyWidth: document.body.scrollWidth,
+                  viewportWidth: innerWidth,
+                  bodyFont: bodyStyle.fontFamily,
+                  h1Font: h1Style.fontFamily,
+                  h1Size: h1Style.fontSize,
+                  inlineStyleBlocks: document.querySelectorAll('style').length,
+                  atlasStylesheet: Array.from(document.styleSheets).some(s => s.href && s.href.includes('atlas-ui.css')),
+                  manropeReady: document.fonts.check('16px Manrope'),
+                  shellTop: nav ? nav.getBoundingClientRect().top : null,
+                  coverLoaded: !!cover && cover.complete && cover.naturalWidth > 0
+                };
+              }''')
+              assert shell['docWidth'] <= viewport['width'] + 1, shell
+              assert shell['bodyWidth'] <= viewport['width'] + 1, shell
+              assert shell['inlineStyleBlocks'] == 0, shell
+              assert shell['atlasStylesheet'], shell
+              assert shell['manropeReady'], shell
+              assert 'Manrope' in shell['bodyFont'], shell
+              assert 'Manrope' in shell['h1Font'], shell
+              assert 'Georgia' not in shell['h1Font'] and 'Times' not in shell['h1Font'], shell
+              assert shell['coverLoaded'], shell
+
+              # Every shell navigation control must remain reachable on the current viewport.
+              nav_checks = []
+              for link in page.locator('.atlas-shell__nav a').all():
+                link.scroll_into_view_if_needed()
+                box = link.bounding_box()
+                assert box is not None
+                assert box['x'] >= -1 and box['x'] + box['width'] <= viewport['width'] + 1, (label, box)
+                nav_checks.append({'text': link.inner_text().strip(), 'box': box})
+
+              page.screenshot(path=str(out / f'{label}-page.png'), full_page=True)
+              vr = {'httpStatus': response.status, 'shell': shell, 'nav': nav_checks, 'programmes': {}}
+
+              for key, exp in expected.items():
+                button = page.locator(f'button[data-program="{key}"]')
+                service = button.locator('xpath=ancestor::article[1]')
+                status = service.locator('.ac-status').text_content().strip()
+                price = service.locator('.ac-price').text_content().strip()
+                assert status == exp['status'], (key, status, exp['status'])
+                assert price == exp['price'], (key, price, exp['price'])
+                button.scroll_into_view_if_needed()
+                button.click()
+                page.wait_for_function("() => document.querySelector('#programmeDialog').open === true")
+                title = page.locator('#programmeTitle').inner_text().strip()
+                body = page.locator('#programmeContent').inner_text().strip()
+                cta = page.locator('#programmeContact')
+                assert title == exp['title'], (key, title, exp['title'])
+                assert body == exp['body'], (key, body, exp['body'])
+                assert cta.inner_text().strip() == 'Parler de mon projet ↗'
+                assert cta.get_attribute('href') == 'start.html'
+                geom = page.evaluate('''() => {
+                  const d=document.querySelector('#programmeDialog').getBoundingClientRect();
+                  const x=document.querySelector('#closeProgramme').getBoundingClientRect();
+                  return {dialog:{left:d.left,right:d.right,top:d.top,bottom:d.bottom},close:{left:x.left,right:x.right,top:x.top,bottom:x.bottom},vw:innerWidth,vh:innerHeight,scrollWidth:document.documentElement.scrollWidth};
+                }''')
+                assert geom['dialog']['left'] >= -1 and geom['dialog']['right'] <= geom['vw'] + 1, geom
+                assert geom['close']['left'] >= 0 and geom['close']['right'] <= geom['vw'], geom
+                assert geom['close']['top'] >= 0 and geom['close']['bottom'] <= geom['vh'], geom
+                assert geom['scrollWidth'] <= geom['vw'] + 1, geom
+                if key == 'guided':
+                  page.screenshot(path=str(out / f'{label}-modal-guided.png'), full_page=False)
+                page.locator('#closeProgramme').click()
+                page.wait_for_function("() => document.querySelector('#programmeDialog').open === false")
+                vr['programmes'][key] = {'status': status, 'price': price, 'modalTitle': title, 'modalBody': body, 'geometry': geom, 'closeButton': True}
+
+              page.locator('button[data-program="guided"]').scroll_into_view_if_needed()
+              page.locator('button[data-program="guided"]').click()
+              page.wait_for_function("() => document.querySelector('#programmeDialog').open === true")
+              page.keyboard.press('Escape')
+              page.wait_for_function("() => document.querySelector('#programmeDialog').open === false")
+              vr['escapeClose'] = True
+
+              # Reduced-motion contract exists and produces near-zero transition duration.
+              reduced = browser.new_page(viewport=viewport, reduced_motion='reduce')
+              reduced.goto(URL, wait_until='domcontentloaded', timeout=30000)
+              duration = reduced.locator('.atlas-button').first.evaluate("el => getComputedStyle(el).transitionDuration")
+              reduced.close()
+              vr['reducedMotionTransitionDuration'] = duration
+              report['viewports'][label] = vr
+              page.close()
+            browser.close()
+
+          Path('qa-artifacts/report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+          python /tmp/p5ds0_candidate_qa.py
+
+      - name: Upload candidate QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5ds0-candidate-qa
+          path: qa-artifacts
+          if-no-files-found: error
