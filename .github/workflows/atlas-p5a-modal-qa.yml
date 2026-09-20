@@ -1,0 +1,136 @@
+name: ATLAS P5A Modal QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5a-modal-qa-20260920
+
+permissions:
+  contents: read
+
+jobs:
+  modal-browser-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout QA branch
+        uses: actions/checkout@v4
+
+      - name: Verify production page bytes are unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object atlas-exit/accompagnement.html)" = "34843e304f401ee4932d9022e0a44d44dadf0750"
+          test "$(git hash-object atlas-exit/programmes.js)" = "9e228ee55eb967eb890d6c4efa10ec7918a5553d"
+          git diff --exit-code 41998297595d429605b9413dfacdcf28202bfe38 -- atlas-exit/accompagnement.html atlas-exit/programmes.js
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run public accompaniment modal QA
+        shell: bash
+        run: |
+          cat > /tmp/p5a_modal_qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          URL = 'https://atlas-expat.fr/accompagnement.html'
+          expected = {
+            'guided': {
+              'title':'Projet USA',
+              'status':'EN PRÉPARATION',
+              'price':'990 €',
+              'body':'Parcours accompagné prévu. Le contenu, les séances, les intervenants et les conditions seront confirmés avant vente.'
+            },
+            'coordination': {
+              'title':'Coordination',
+              'status':'SUR ÉTUDE · NON OUVERT',
+              'price':'2 500 €',
+              'body':'Organisation administrative prévue, sur périmètre écrit. Aucune représentation juridique ni obtention de visa garantie.'
+            },
+            'signature': {
+              'title':'Signature',
+              'status':'SUR ÉTUDE · NON OUVERT',
+              'price':'5 000 €',
+              'body':'Coordination renforcée prévue pour un dossier complexe. Disponibilité, périmètre et intervenants à confirmer avant engagement.'
+            }
+          }
+          out = Path('qa-artifacts')
+          out.mkdir(exist_ok=True)
+          report = {'url':URL,'viewports':{}}
+
+          with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            for label, viewport in [('desktop', {'width':1440,'height':1000}), ('mobile', {'width':390,'height':844})]:
+              page = browser.new_page(viewport=viewport)
+              response = page.goto(URL, wait_until='domcontentloaded', timeout=30000)
+              assert response is not None and response.ok, f'{label}: HTTP {response.status if response else "none"}'
+              page.wait_for_selector('button[data-program="guided"]', state='visible')
+              assert page.title() == 'Accompagnement — Atlas Exit'
+              initial = page.evaluate('() => ({doc:document.documentElement.scrollWidth, body:document.body.scrollWidth, width:innerWidth})')
+              assert initial['doc'] <= initial['width'] + 1 and initial['body'] <= initial['width'] + 1, initial
+              vr = {'http_status':response.status,'initial_overflow':initial,'programmes':{}}
+
+              for key, exp in expected.items():
+                button = page.locator(f'button[data-program="{key}"]')
+                card = button.locator('xpath=ancestor::article[1]')
+                status = card.locator('.status').inner_text().strip()
+                price = card.locator('.price').inner_text().strip()
+                assert status == exp['status'], (key,status,exp['status'])
+                assert price == exp['price'], (key,price,exp['price'])
+                button.scroll_into_view_if_needed()
+                button.click()
+                page.wait_for_function("() => document.querySelector('#programmeDialog').open === true")
+                title = page.locator('#programmeTitle').inner_text().strip()
+                body = page.locator('#programmeContent').inner_text().strip()
+                cta = page.locator('#programmeContact')
+                cta_text = cta.inner_text().strip()
+                cta_href = cta.get_attribute('href')
+                assert title == exp['title'], (key,title,exp['title'])
+                assert body == exp['body'], (key,body,exp['body'])
+                assert cta_text == 'Parler de mon projet ↗'
+                assert cta_href == 'start.html'
+                geom = page.evaluate("""() => {
+                  const d=document.querySelector('#programmeDialog').getBoundingClientRect();
+                  const x=document.querySelector('#closeProgramme').getBoundingClientRect();
+                  return {dialog:{left:d.left,right:d.right,top:d.top,bottom:d.bottom,width:d.width,height:d.height},close:{left:x.left,right:x.right,top:x.top,bottom:x.bottom,width:x.width,height:x.height},vw:innerWidth,vh:innerHeight,scrollWidth:document.documentElement.scrollWidth};
+                }""")
+                assert geom['dialog']['left'] >= -1 and geom['dialog']['right'] <= geom['vw'] + 1, geom
+                assert geom['close']['left'] >= 0 and geom['close']['right'] <= geom['vw'], geom
+                assert geom['close']['top'] >= 0 and geom['close']['bottom'] <= geom['vh'], geom
+                assert geom['scrollWidth'] <= geom['vw'] + 1, geom
+                screenshot = out / f'{label}-{key}.png'
+                page.screenshot(path=str(screenshot), full_page=True)
+                page.locator('#closeProgramme').click()
+                page.wait_for_function("() => document.querySelector('#programmeDialog').open === false")
+                vr['programmes'][key] = {
+                  'card_status':status,'card_price':price,'modal_title':title,'modal_body':body,
+                  'cta_text':cta_text,'cta_href':cta_href,'geometry':geom,'close_button_pass':True,
+                  'screenshot':str(screenshot)
+                }
+
+              page.locator('button[data-program="guided"]').scroll_into_view_if_needed()
+              page.locator('button[data-program="guided"]').click()
+              page.wait_for_function("() => document.querySelector('#programmeDialog').open === true")
+              page.keyboard.press('Escape')
+              page.wait_for_function("() => document.querySelector('#programmeDialog').open === false")
+              vr['escape_close_pass'] = True
+              report['viewports'][label] = vr
+              page.close()
+            browser.close()
+
+          Path('qa-artifacts/report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+          python /tmp/p5a_modal_qa.py
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5a-modal-qa
+          path: qa-artifacts
+          if-no-files-found: error
