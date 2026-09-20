@@ -26,9 +26,9 @@ const GUIDE_TAG_B64 = 'r7bYk8kJsHdI7biKrX4gYg==';
 
 // Isolated free V15 asset. Paid constants/payload above must remain unchanged.
 const FREE_GUIDE_EDITION = '15.0';
-const FREE_GUIDE_SHA256 = '825bd8b24eb22f9ff03f67016bc414f054334b243a02d98a071c25b392c3543f';
-const FREE_GUIDE_NONCE_B64 = 'Sq2tNt+FRcT5P8tA';
-const FREE_GUIDE_TAG_B64 = 'FnBHjMbnkNDQWUx8eEDrFw==';
+const FREE_GUIDE_SHA256 = '0ad900508565222af12adf04a7fe7a66e774c65258eebeb1d5aa77d5e352016f';
+const FREE_GUIDE_NONCE_B64 = '8hzvOYj070dPy1a0';
+const FREE_GUIDE_TAG_B64 = 'jXDUOZQjG98HNDWGSZX8Zw==';
 const FREE_GUIDE_AAD = 'atlas-guide-usa-free-v15:gzip';
 
 const ALLOWED_ORIGINS = new Set([
