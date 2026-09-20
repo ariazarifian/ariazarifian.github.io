@@ -1,0 +1,31 @@
+name: ATLAS P5DS2 Delivery QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds2-qa-20260920
+
+permissions:
+  contents: read
+
+jobs:
+  free-guide-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify live free-guide contract and exact V15
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://atlas-exit-delivery.onrender.com/free-guide/usa'
+          code="$(curl --retry 3 --retry-delay 2 --max-time 90 -sS -L -D /tmp/headers -o /tmp/v15.pdf -w '%{http_code}' "$url")"
+          test "$code" = '200'
+          test "$(wc -c </tmp/v15.pdf)" -eq 8010883
+          echo '0ad900508565222af12adf04a7fe7a66e774c65258eebeb1d5aa77d5e352016f  /tmp/v15.pdf' | sha256sum -c -
+          tr -d '\r' </tmp/headers | tr '[:upper:]' '[:lower:]' >/tmp/headers.lower
+          grep -q '^content-type: application/pdf' /tmp/headers.lower
+          grep -q '^content-disposition: attachment' /tmp/headers.lower
+          grep -q '^cache-control: .*no-store' /tmp/headers.lower
+          grep -q '^x-content-type-options: nosniff' /tmp/headers.lower
+          grep -q '^x-robots-tag: .*noindex' /tmp/headers.lower
+          printf 'HTTP %s\nbytes=%s\nsha256=%s\n' "$code" "$(wc -c </tmp/v15.pdf)" "$(sha256sum /tmp/v15.pdf | cut -d' ' -f1)"
