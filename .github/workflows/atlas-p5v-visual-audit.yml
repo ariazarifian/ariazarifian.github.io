@@ -1,0 +1,44 @@
+name: Atlas P5V visual audit
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5v-visual-audit-20260920
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start exact branch static site
+        run: |
+          python3 -m http.server 4173 --directory atlas-exit > /tmp/atlas-http.log 2>&1 &
+          echo $! > /tmp/atlas-http.pid
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/offres.html >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/atlas-http.log
+          exit 1
+      - name: Capture production-equivalent core journey
+        run: |
+          set -euxo pipefail
+          mkdir -p p5v-shots
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
+          test -n "$CHROME"
+          for page in index offres parcours-usa accompagnement; do
+            "$CHROME" --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1440,1000 --virtual-time-budget=5000 --screenshot="p5v-shots/${page}-desktop-1440x1000.png" "http://127.0.0.1:4173/${page}.html"
+            "$CHROME" --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=390,844 --virtual-time-budget=5000 --screenshot="p5v-shots/${page}-mobile-390x844.png" "http://127.0.0.1:4173/${page}.html"
+          done
+          file p5v-shots/*.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5v-core-journey-screenshots
+          path: p5v-shots/*.png
+          if-no-files-found: error
+          retention-days: 7
