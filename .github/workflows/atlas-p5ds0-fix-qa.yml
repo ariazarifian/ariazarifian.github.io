@@ -1,0 +1,160 @@
+name: ATLAS P5DS0 Fix QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds0-fix-qa-20260920
+
+permissions:
+  contents: read
+
+jobs:
+  browser-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout QA branch
+        uses: actions/checkout@v4
+
+      - name: Verify exact Product candidate bytes and self-hosted font boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object atlas-exit/atlas-ui.css)" = "a0723e252c434322cdf8ad780f097831db8ff8e9"
+          test "$(git hash-object atlas-exit/accompagnement.html)" = "42194ffd00dd2839fadaae34b720bcd9d377d526"
+          test "$(git hash-object atlas-exit/assets/fonts/Manrope-Variable.ttf)" = "75274da58537d6123b14f2cd0c355ad4681fc2b3"
+          test "$(git hash-object atlas-exit/assets/fonts/Manrope-OFL.txt)" = "e271172a9ed0cddc895aabb6509f1c7d880b492d"
+          test "$(git hash-object atlas-exit/programmes.js)" = "9e228ee55eb967eb890d6c4efa10ec7918a5553d"
+          ! grep -R -nE 'fonts\.googleapis\.com|fonts\.gstatic\.com' atlas-exit/accompagnement.html atlas-exit/atlas-ui.css
+          grep -q "style-src 'self'; font-src 'self'" atlas-exit/accompagnement.html
+          grep -q 'assets/fonts/Manrope-Variable.ttf' atlas-exit/atlas-ui.css
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Start exact-artifact local server
+        shell: bash
+        run: |
+          python -m http.server 4173 --directory atlas-exit >/tmp/atlas-p5ds0-fix-http.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/accompagnement.html >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/atlas-p5ds0-fix-http.log
+          exit 1
+
+      - name: Run desktop/mobile visual and interaction gate
+        shell: bash
+        run: |
+          cat > /tmp/p5ds0_fix_qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          URL='http://127.0.0.1:4173/accompagnement.html'
+          expected={
+            'guided':('Projet USA','En préparation','990 €','Parcours accompagné prévu. Le contenu, les séances, les intervenants et les conditions seront confirmés avant vente.'),
+            'coordination':('Coordination','Sur étude · non ouvert','2 500 €','Organisation administrative prévue, sur périmètre écrit. Aucune représentation juridique ni obtention de visa garantie.'),
+            'signature':('Signature','Sur étude · non ouvert','5 000 €','Coordination renforcée prévue pour un dossier complexe. Disponibilité, périmètre et intervenants à confirmer avant engagement.'),
+          }
+          out=Path('qa-artifacts'); out.mkdir(exist_ok=True)
+          report={'candidate':'6ddd15d8a57cfcabd7ccabe7fc390a62fe760bf8','viewports':{}}
+
+          with sync_playwright() as p:
+            browser=p.chromium.launch(headless=True)
+            for label,viewport in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+              page=browser.new_page(viewport=viewport)
+              res=page.goto(URL,wait_until='domcontentloaded',timeout=30000)
+              assert res and res.ok, (label,res.status if res else None)
+              page.wait_for_timeout(1200)
+              page.evaluate('document.fonts.ready')
+              page.wait_for_selector('button[data-program="guided"]',state='visible')
+
+              shell=page.evaluate('''() => {
+                const body=getComputedStyle(document.body), h1=getComputedStyle(document.querySelector('h1'));
+                const resources=performance.getEntriesByType('resource').map(e=>e.name);
+                return {
+                  docWidth:document.documentElement.scrollWidth,
+                  bodyWidth:document.body.scrollWidth,
+                  viewportWidth:innerWidth,
+                  bodyFont:body.fontFamily,
+                  h1Font:h1.fontFamily,
+                  fontsStatus:document.fonts.status,
+                  manropeReady:document.fonts.check('16px Manrope'),
+                  fontResources:resources.filter(x=>x.includes('Manrope-Variable.ttf')),
+                  forbiddenFontResources:resources.filter(x=>x.includes('fonts.googleapis.com')||x.includes('fonts.gstatic.com')),
+                  coverLoaded:(()=>{const x=document.querySelector('.ac-proof__cover'); return !!x&&x.complete&&x.naturalWidth>0})(),
+                  inlineStyleBlocks:document.querySelectorAll('style').length
+                }
+              }''')
+              assert shell['docWidth'] <= viewport['width']+1, shell
+              assert shell['bodyWidth'] <= viewport['width']+1, shell
+              assert shell['fontsStatus']=='loaded' and shell['manropeReady'], shell
+              assert 'Manrope' in shell['bodyFont'] and 'Manrope' in shell['h1Font'], shell
+              assert 'Georgia' not in shell['h1Font'] and 'Times' not in shell['h1Font'], shell
+              assert shell['fontResources'] and not shell['forbiddenFontResources'], shell
+              assert shell['coverLoaded'] and shell['inlineStyleBlocks']==0, shell
+
+              nav=[]
+              links=page.locator('.atlas-shell__nav a')
+              assert links.count()==4
+              for i in range(links.count()):
+                link=links.nth(i); box=link.bounding_box(); style=link.evaluate("el=>({fontSize:parseFloat(getComputedStyle(el).fontSize),lineHeight:getComputedStyle(el).lineHeight})")
+                assert box is not None
+                assert box['x'] >= -1 and box['x']+box['width'] <= viewport['width']+1, (label,box)
+                if label=='mobile':
+                  assert style['fontSize'] >= 13, (link.inner_text(),style)
+                  assert box['height'] >= 42, (link.inner_text(),box)
+                nav.append({'text':link.inner_text().strip(),'box':box,'fontSize':style['fontSize']})
+
+              page.screenshot(path=str(out/f'{label}-page.png'),full_page=True)
+              vr={'httpStatus':res.status,'shell':shell,'nav':nav,'programmes':{}}
+              for key,(title,status,price,body) in expected.items():
+                button=page.locator(f'button[data-program="{key}"]')
+                service=button.locator('xpath=ancestor::article[1]')
+                assert service.locator('.ac-status').inner_text().strip()==status
+                assert service.locator('.ac-price').inner_text().strip()==price
+                button.scroll_into_view_if_needed(); button.click(); page.wait_for_timeout(80)
+                assert page.locator('#programmeDialog').evaluate('el=>el.open')
+                assert page.locator('#programmeTitle').inner_text().strip()==title
+                assert page.locator('#programmeContent').inner_text().strip()==body
+                cta=page.locator('#programmeContact')
+                assert cta.inner_text().strip()=='Parler de mon projet ↗' and cta.get_attribute('href')=='start.html'
+                geom=page.evaluate('''() => {const d=document.querySelector('#programmeDialog').getBoundingClientRect(),x=document.querySelector('#closeProgramme').getBoundingClientRect(); return {dialog:{left:d.left,right:d.right,top:d.top,bottom:d.bottom},close:{left:x.left,right:x.right,top:x.top,bottom:x.bottom},vw:innerWidth,vh:innerHeight,scrollWidth:document.documentElement.scrollWidth}}''')
+                assert geom['dialog']['left']>=-1 and geom['dialog']['right']<=geom['vw']+1,geom
+                assert geom['close']['left']>=0 and geom['close']['right']<=geom['vw'] and geom['close']['top']>=0 and geom['close']['bottom']<=geom['vh'],geom
+                assert geom['scrollWidth']<=geom['vw']+1,geom
+                if key=='guided': page.screenshot(path=str(out/f'{label}-modal-guided.png'))
+                page.locator('#closeProgramme').click(); page.wait_for_timeout(50)
+                assert not page.locator('#programmeDialog').evaluate('el=>el.open')
+                vr['programmes'][key]={'status':status,'price':price,'title':title,'closeButton':True,'geometry':geom}
+
+              page.locator('button[data-program="guided"]').scroll_into_view_if_needed(); page.locator('button[data-program="guided"]').click(); page.wait_for_timeout(50)
+              page.keyboard.press('Escape'); page.wait_for_timeout(50)
+              assert not page.locator('#programmeDialog').evaluate('el=>el.open')
+              vr['escapeClose']=True
+
+              reduced=browser.new_page(viewport=viewport,reduced_motion='reduce')
+              reduced.goto(URL,wait_until='domcontentloaded',timeout=30000); reduced.wait_for_timeout(300)
+              duration=reduced.locator('.atlas-button').first.evaluate('el=>getComputedStyle(el).transitionDuration')
+              reduced.close()
+              assert duration in ('0s','0.00001s','0.01ms','1e-05s'),duration
+              vr['reducedMotionTransitionDuration']=duration
+              report['viewports'][label]=vr
+              page.close()
+            browser.close()
+
+          Path('qa-artifacts/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/p5ds0_fix_qa.py
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5ds0-fix-qa
+          path: qa-artifacts
+          if-no-files-found: error
