@@ -1,3 +1,10 @@
+@font-face{
+  font-family:"Manrope";
+  src:url("assets/fonts/Manrope-Variable.ttf") format("truetype");
+  font-style:normal;
+  font-weight:200 800;
+  font-display:swap;
+}
 :root{
   color-scheme:light;
   --atlas-navy-950:#091316;
@@ -145,11 +152,11 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,su
 @media(max-width:650px){
   :root{--atlas-gutter:18px}
   body{font-size:15px}
-  .atlas-shell__inner{min-height:auto;padding:13px 0 10px;display:grid;grid-template-columns:1fr;gap:8px}
+  .atlas-shell__inner{min-height:auto;padding:12px 0 12px;display:grid;grid-template-columns:1fr;gap:10px}
   .atlas-wordmark{font-size:14px}
   .atlas-wordmark__mark{width:25px;height:25px}
-  .atlas-shell__nav{justify-content:flex-start;margin-inline:-3px;padding:0 3px 2px;gap:3px}
-  .atlas-shell__nav a{padding:8px 9px;font-size:11px}
+  .atlas-shell__nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;justify-content:stretch;margin:2px 0 0;padding:10px 0 0;gap:6px;border-top:1px solid var(--atlas-line);overflow:visible}
+  .atlas-shell__nav a{display:flex;align-items:center;justify-content:center;min-height:42px;padding:9px 10px;font-size:13px;line-height:1.22;text-align:center;white-space:normal}
   .atlas-kicker{font-size:10px;letter-spacing:.095em}
   .atlas-kicker::before{width:16px}
   .atlas-actions{align-items:stretch;flex-direction:column}
