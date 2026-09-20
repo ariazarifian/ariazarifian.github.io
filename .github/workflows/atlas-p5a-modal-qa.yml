@@ -15,8 +15,6 @@ jobs:
     steps:
       - name: Checkout QA branch
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
       - name: Verify production page bytes are unchanged
         shell: bash
@@ -24,7 +22,6 @@ jobs:
           set -euo pipefail
           test "$(git hash-object atlas-exit/accompagnement.html)" = "34843e304f401ee4932d9022e0a44d44dadf0750"
           test "$(git hash-object atlas-exit/programmes.js)" = "9e228ee55eb967eb890d6c4efa10ec7918a5553d"
-          git diff --exit-code 41998297595d429605b9413dfacdcf28202bfe38 -- atlas-exit/accompagnement.html atlas-exit/programmes.js
 
       - name: Install Playwright
         run: |
