@@ -77,13 +77,16 @@ jobs:
           out.mkdir(exist_ok=True)
           report = {'url': URL, 'viewports': {}}
 
+          def dialog_open(page):
+            return page.locator('#programmeDialog').evaluate('el => el.open')
+
           with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             for label, viewport in [('desktop', {'width':1440,'height':1000}), ('mobile', {'width':390,'height':844})]:
               page = browser.new_page(viewport=viewport)
               response = page.goto(URL, wait_until='domcontentloaded', timeout=30000)
               assert response is not None and response.ok, f'{label}: HTTP {response.status if response else "none"}'
-              page.wait_for_function('document.fonts.status === "loaded"', timeout=30000)
+              page.wait_for_timeout(1800)
               page.wait_for_selector('button[data-program="guided"]', state='visible')
               assert page.title() == 'Accompagnement — Atlas Exit'
 
@@ -101,6 +104,7 @@ jobs:
                   h1Size: h1Style.fontSize,
                   inlineStyleBlocks: document.querySelectorAll('style').length,
                   atlasStylesheet: Array.from(document.styleSheets).some(s => s.href && s.href.includes('atlas-ui.css')),
+                  fontsStatus: document.fonts.status,
                   manropeReady: document.fonts.check('16px Manrope'),
                   shellTop: nav ? nav.getBoundingClientRect().top : null,
                   coverLoaded: !!cover && cover.complete && cover.naturalWidth > 0
@@ -110,13 +114,13 @@ jobs:
               assert shell['bodyWidth'] <= viewport['width'] + 1, shell
               assert shell['inlineStyleBlocks'] == 0, shell
               assert shell['atlasStylesheet'], shell
+              assert shell['fontsStatus'] == 'loaded', shell
               assert shell['manropeReady'], shell
               assert 'Manrope' in shell['bodyFont'], shell
               assert 'Manrope' in shell['h1Font'], shell
               assert 'Georgia' not in shell['h1Font'] and 'Times' not in shell['h1Font'], shell
               assert shell['coverLoaded'], shell
 
-              # Every shell navigation control must remain reachable on the current viewport.
               nav_checks = []
               for link in page.locator('.atlas-shell__nav a').all():
                 link.scroll_into_view_if_needed()
@@ -137,7 +141,8 @@ jobs:
                 assert price == exp['price'], (key, price, exp['price'])
                 button.scroll_into_view_if_needed()
                 button.click()
-                page.wait_for_function("() => document.querySelector('#programmeDialog').open === true")
+                page.wait_for_timeout(80)
+                assert dialog_open(page), f'{label}/{key}: dialog did not open'
                 title = page.locator('#programmeTitle').inner_text().strip()
                 body = page.locator('#programmeContent').inner_text().strip()
                 cta = page.locator('#programmeContact')
@@ -157,22 +162,26 @@ jobs:
                 if key == 'guided':
                   page.screenshot(path=str(out / f'{label}-modal-guided.png'), full_page=False)
                 page.locator('#closeProgramme').click()
-                page.wait_for_function("() => document.querySelector('#programmeDialog').open === false")
+                page.wait_for_timeout(60)
+                assert not dialog_open(page), f'{label}/{key}: close button failed'
                 vr['programmes'][key] = {'status': status, 'price': price, 'modalTitle': title, 'modalBody': body, 'geometry': geom, 'closeButton': True}
 
               page.locator('button[data-program="guided"]').scroll_into_view_if_needed()
               page.locator('button[data-program="guided"]').click()
-              page.wait_for_function("() => document.querySelector('#programmeDialog').open === true")
+              page.wait_for_timeout(60)
+              assert dialog_open(page), f'{label}: guided dialog did not reopen'
               page.keyboard.press('Escape')
-              page.wait_for_function("() => document.querySelector('#programmeDialog').open === false")
+              page.wait_for_timeout(60)
+              assert not dialog_open(page), f'{label}: Escape failed to close dialog'
               vr['escapeClose'] = True
 
-              # Reduced-motion contract exists and produces near-zero transition duration.
               reduced = browser.new_page(viewport=viewport, reduced_motion='reduce')
               reduced.goto(URL, wait_until='domcontentloaded', timeout=30000)
-              duration = reduced.locator('.atlas-button').first.evaluate("el => getComputedStyle(el).transitionDuration")
+              reduced.wait_for_timeout(400)
+              duration = reduced.locator('.atlas-button').first.evaluate('el => getComputedStyle(el).transitionDuration')
               reduced.close()
               vr['reducedMotionTransitionDuration'] = duration
+              assert duration in ('0s', '0.00001s', '0.01ms'), duration
               report['viewports'][label] = vr
               page.close()
             browser.close()
