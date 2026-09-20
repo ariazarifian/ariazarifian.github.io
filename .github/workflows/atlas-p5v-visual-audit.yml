@@ -36,6 +36,79 @@ jobs:
             "$CHROME" --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=390,844 --virtual-time-budget=5000 --screenshot="p5v-shots/${page}-mobile-390x844.png" "http://127.0.0.1:4173/${page}.html"
           done
           file p5v-shots/*.png
+      - name: Browser-regress roadmap lifecycle on exact candidate
+        run: |
+          set -euxo pipefail
+          CHROMEDRIVER="$(command -v chromedriver || command -v chromedriver-linux64 || true)"
+          test -n "$CHROMEDRIVER"
+          "$CHROMEDRIVER" --port=9515 > /tmp/chromedriver.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:9515/status >/dev/null; then break; fi
+            sleep 1
+          done
+          python3 - <<'PY'
+          import json, time, urllib.request
+
+          WD='http://127.0.0.1:9515'
+          def req(method, path, body=None):
+              data = None if body is None else json.dumps(body).encode()
+              r = urllib.request.Request(WD+path, data=data, method=method, headers={'Content-Type':'application/json'})
+              with urllib.request.urlopen(r, timeout=15) as resp:
+                  return json.loads(resp.read().decode() or '{}')
+
+          session = req('POST','/session',{'capabilities':{'alwaysMatch':{'browserName':'chrome','goog:chromeOptions':{'args':['--headless=new','--no-sandbox','--disable-gpu','--window-size=1440,1000']}}}}})
+          sid = session.get('value',{}).get('sessionId') or session.get('sessionId')
+          assert sid, session
+          def script(code):
+              return req('POST',f'/session/{sid}/execute/sync',{'script':code,'args':[]}).get('value')
+          def nav():
+              req('POST',f'/session/{sid}/url',{'url':'http://127.0.0.1:4173/parcours-usa.html'})
+              for _ in range(40):
+                  if script('return document.readyState') == 'complete':
+                      time.sleep(.25); return
+                  time.sleep(.1)
+              raise AssertionError('page never reached complete')
+
+          try:
+              nav()
+              script("localStorage.clear(); location.reload(); return true")
+              time.sleep(.5)
+              fresh = script("return {steps:document.querySelectorAll('[data-step]').length,cards:document.querySelectorAll('[data-card-step]').length,resumeHidden:document.getElementById('resumeRoute').parentElement.hidden,summaryHidden:document.getElementById('routeSummary').hidden,done:document.getElementById('doneCount').textContent,scripts:[...document.scripts].map(s=>s.getAttribute('src')).filter(Boolean)}")
+              assert fresh['steps']==8 and fresh['cards']==8, fresh
+              assert fresh['resumeHidden'] is True and fresh['summaryHidden'] is True and fresh['done']=='0', fresh
+              assert 'atlas-events.js?v=1' in fresh['scripts'] and 'parcours-usa.js?v=1' in fresh['scripts'], fresh
+
+              script("document.getElementById('profile').value='job';document.getElementById('horizon').value='3-6';document.getElementById('city').value='New York';document.getElementById('priority').value='immigration';document.getElementById('routeForm').requestSubmit();return true")
+              saved = script("return {state:JSON.parse(localStorage.getItem('atlas_usa_route_v3')),summaryHidden:document.getElementById('routeSummary').hidden,resume:document.getElementById('resumeRoute').textContent,resumeHidden:document.getElementById('resumeRoute').parentElement.hidden}")
+              assert saved['state']['answers']['profile']=='job' and saved['state']['answers']['city']=='New York', saved
+              assert saved['summaryHidden'] is False and saved['resumeHidden'] is False and saved['resume']=='Reprendre à l’étape 1 →', saved
+
+              script("const b=[...document.querySelectorAll('[data-step]')];for(let i=0;i<3;i++){b[i].checked=true;b[i].dispatchEvent(new Event('change',{bubbles:true}))}return true")
+              partial = script("return {done:document.getElementById('doneCount').textContent,resume:document.getElementById('resumeRoute').textContent,state:JSON.parse(localStorage.getItem('atlas_usa_route_v3'))}")
+              assert partial['done']=='3' and partial['resume']=='Reprendre à l’étape 4 →', partial
+              nav()
+              restored = script("return {done:document.getElementById('doneCount').textContent,resume:document.getElementById('resumeRoute').textContent,city:document.getElementById('city').value}")
+              assert restored=={'done':'3','resume':'Reprendre à l’étape 4 →','city':'New York'}, restored
+              script("document.getElementById('resumeRoute').click();return true")
+              time.sleep(.35)
+              focus = script("return document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.step : null")
+              assert focus=='landing', focus
+
+              script("const b=[...document.querySelectorAll('[data-step]')];for(const x of b){if(!x.checked){x.checked=true;x.dispatchEvent(new Event('change',{bubbles:true}))}}return true")
+              complete = script("return {done:document.getElementById('doneCount').textContent,resume:document.getElementById('resumeRoute').textContent}")
+              assert complete=={'done':'8','resume':'Revoir ma roadmap →'}, complete
+              nav()
+              complete2 = script("return {done:document.getElementById('doneCount').textContent,resume:document.getElementById('resumeRoute').textContent}")
+              assert complete2==complete, complete2
+
+              script("localStorage.setItem('atlas_usa_qep_v1','sent');document.getElementById('resetRoute').click();return true")
+              reset = script("return {route:localStorage.getItem('atlas_usa_route_v3'),qep:localStorage.getItem('atlas_usa_qep_v1'),resumeHidden:document.getElementById('resumeRoute').parentElement.hidden,summaryHidden:document.getElementById('routeSummary').hidden,done:document.getElementById('doneCount').textContent}")
+              assert reset=={'route':None,'qep':None,'resumeHidden':True,'summaryHidden':True,'done':'0'}, reset
+              print('P5V_ROADMAP_BROWSER_REGRESSION_PASS', json.dumps({'fresh':fresh,'partial':restored,'focus':focus,'complete':complete,'reset':reset}, ensure_ascii=False))
+          finally:
+              try: req('DELETE',f'/session/{sid}')
+              except Exception: pass
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: atlas-p5v-core-journey-screenshots
