@@ -181,7 +181,7 @@ jobs:
               duration = reduced.locator('.atlas-button').first.evaluate('el => getComputedStyle(el).transitionDuration')
               reduced.close()
               vr['reducedMotionTransitionDuration'] = duration
-              assert duration in ('0s', '0.00001s', '0.01ms'), duration
+              assert duration in ('0s', '0.00001s', '0.01ms', '1e-05s'), duration
               report['viewports'][label] = vr
               page.close()
             browser.close()
