@@ -1,0 +1,81 @@
+name: P6-E2 public backend smoke
+
+on:
+  push:
+    branches:
+      - 'ops/p6e2-live-smoke-20260920-1644'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_URL: https://atlas-exit-delivery.onrender.com
+      EXPECTED_SHA: 0ad900508565222af12adf04a7fe7a66e774c65258eebeb1d5aa77d5e352016f
+      EXPECTED_BYTES: '8010883'
+    steps:
+      - name: Live health + free guide + paid regression smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/report
+
+          curl --fail --silent --show-error --location --retry 4 --retry-delay 2 \
+            "$BASE_URL/health" -o /tmp/report/health.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const h=JSON.parse(fs.readFileSync('/tmp/report/health.json','utf8'));
+          if (h.ok !== true) throw new Error('health ok false');
+          if (h.freeGuideConfigured !== true) throw new Error('free guide not configured');
+          if (h.freeGuideEdition !== '15.0') throw new Error(`edition ${h.freeGuideEdition}`);
+          if (h.freeGuideSha256 !== process.env.EXPECTED_SHA) throw new Error(`health hash ${h.freeGuideSha256}`);
+          NODE
+
+          code="$(curl --silent --show-error --location --retry 4 --retry-delay 2 \
+            -D /tmp/report/free-guide.headers \
+            -o /tmp/free-guide.pdf \
+            -w '%{http_code}' \
+            "$BASE_URL/free-guide/usa")"
+          test "$code" = 200
+          test "$(stat -c%s /tmp/free-guide.pdf)" = "$EXPECTED_BYTES"
+          actual_sha="$(sha256sum /tmp/free-guide.pdf | awk '{print $1}')"
+          test "$actual_sha" = "$EXPECTED_SHA"
+          head -c4 /tmp/free-guide.pdf | grep -q '%PDF'
+
+          tr -d '\r' < /tmp/report/free-guide.headers > /tmp/report/free-guide.headers.norm
+          grep -qi '^content-type: application/pdf' /tmp/report/free-guide.headers.norm
+          grep -qi '^content-disposition: attachment' /tmp/report/free-guide.headers.norm
+          grep -qi '^cache-control: .*private' /tmp/report/free-guide.headers.norm
+          grep -qi '^cache-control: .*no-store' /tmp/report/free-guide.headers.norm
+          grep -qi '^x-content-type-options: nosniff' /tmp/report/free-guide.headers.norm
+          grep -qi '^x-robots-tag: .*noindex' /tmp/report/free-guide.headers.norm
+          grep -qi '^x-robots-tag: .*noarchive' /tmp/report/free-guide.headers.norm
+
+          badsig="$(printf '0%.0s' {1..64})"
+          paid_code="$(curl --silent --show-error -o /tmp/report/paid-invalid.body -w '%{http_code}' \
+            "$BASE_URL/download?order=historical-invalid-smoke&sig=$badsig")"
+          test "$paid_code" = 403
+
+          {
+            echo "production_commit=b1c6d54265d30e735f23a9b5071e209f5020cdd0"
+            echo "render_deploy=dep-danv263m8hqs73cm1jf0"
+            echo "health_free_edition=15.0"
+            echo "health_free_sha=$EXPECTED_SHA"
+            echo "download_http=200"
+            echo "download_bytes=$EXPECTED_BYTES"
+            echo "download_sha=$actual_sha"
+            echo "invalid_paid_download_http=$paid_code"
+            echo "smoke_utc=$(date -u +%FT%TZ)"
+          } > /tmp/report/result.txt
+          rm -f /tmp/free-guide.pdf
+
+      - name: Upload smoke evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p6e2-public-smoke-evidence
+          path: /tmp/report
+          if-no-files-found: error
+          retention-days: 30
