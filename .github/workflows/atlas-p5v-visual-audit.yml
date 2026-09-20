@@ -56,7 +56,17 @@ jobs:
               with urllib.request.urlopen(r, timeout=15) as resp:
                   return json.loads(resp.read().decode() or '{}')
 
-          session = req('POST','/session',{'capabilities':{'alwaysMatch':{'browserName':'chrome','goog:chromeOptions':{'args':['--headless=new','--no-sandbox','--disable-gpu','--window-size=1440,1000']}}}}})
+          session_payload = {
+              'capabilities': {
+                  'alwaysMatch': {
+                      'browserName': 'chrome',
+                      'goog:chromeOptions': {
+                          'args': ['--headless=new','--no-sandbox','--disable-gpu','--window-size=1440,1000']
+                      }
+                  }
+              }
+          }
+          session = req('POST','/session',session_payload)
           sid = session.get('value',{}).get('sessionId') or session.get('sessionId')
           assert sid, session
           def script(code):
@@ -71,8 +81,8 @@ jobs:
 
           try:
               nav()
-              script("localStorage.clear(); location.reload(); return true")
-              time.sleep(.5)
+              script("localStorage.clear(); return true")
+              nav()
               fresh = script("return {steps:document.querySelectorAll('[data-step]').length,cards:document.querySelectorAll('[data-card-step]').length,resumeHidden:document.getElementById('resumeRoute').parentElement.hidden,summaryHidden:document.getElementById('routeSummary').hidden,done:document.getElementById('doneCount').textContent,scripts:[...document.scripts].map(s=>s.getAttribute('src')).filter(Boolean)}")
               assert fresh['steps']==8 and fresh['cards']==8, fresh
               assert fresh['resumeHidden'] is True and fresh['summaryHidden'] is True and fresh['done']=='0', fresh
