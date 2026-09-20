@@ -2,6 +2,7 @@
   'use strict';
 
   const STORAGE_KEY = 'atlas_usa_route_v3';
+  const QEP_DEDUPE_KEY = 'atlas_usa_qep_v1';
   const ROUTE_VERSION = 'usa-v3';
   const form = document.getElementById('routeForm');
   const profile = document.getElementById('profile');
@@ -287,7 +288,10 @@
   });
 
   resetButton.addEventListener('click', () => {
-    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(QEP_DEDUPE_KEY);
+    } catch (_) {}
     form.reset();
     routeSummary.hidden = true;
     cards.forEach(card => card.classList.remove('is-focus'));
