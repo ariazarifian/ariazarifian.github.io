@@ -1,4 +1,4 @@
-name: ATLAS P5DS2 Guide QA
+name: ATLAS P5DS2 Live Guide QA
 
 on:
   push:
@@ -9,60 +9,68 @@ permissions:
   contents: read
 
 jobs:
-  browser-qa:
+  live-browser-qa:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify exact Product candidate bytes
+      - name: Verify public shipped bytes
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git hash-object atlas-exit/offres.html)" = "eb60b0d2d731a562b8e979a2c727d950f2338687"
-          test "$(git hash-object atlas-exit/atlas-ui-guide.css)" = "ac948510b05ba90431d5727336c34046c62fdc10"
-          test "$(git hash-object atlas-exit/atlas-ui.css)" = "a4af3e0236c6622a5488fa7836bca100922f382f"
-          test "$(git hash-object atlas-exit/atlas-events.js)" = "acdc41734734c21bddf71f0e05047265274a74ec"
-          ! grep -q '<style' atlas-exit/offres.html
-          ! grep -E -q 'Georgia|Times New Roman|fonts\.googleapis\.com|fonts\.gstatic\.com|guide\.css' atlas-exit/offres.html
-          grep -q 'atlas-ui.css?v=p5ds2-base1' atlas-exit/offres.html
-          grep -q 'atlas-ui-guide.css?v=p5ds2-1' atlas-exit/offres.html
-          grep -q "style-src 'self'; font-src 'self'" atlas-exit/offres.html
-          test "$(grep -o 'data-atlas-event="guide_download_click"' atlas-exit/offres.html | wc -l)" -eq 2
-          test "$(grep -o 'data-atlas-event="free_funnel_cta"' atlas-exit/offres.html | wc -l)" -eq 2
-          test "$(grep -o 'https://atlas-exit-delivery.onrender.com/free-guide/usa' atlas-exit/offres.html | wc -l)" -eq 2
+          BUSTER="p5ds2-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          curl --retry 4 --retry-all-errors -fsSL -H 'Cache-Control: no-cache' "https://atlas-expat.fr/offres.html?qa=${BUSTER}" -o /tmp/offres.html
+          curl --retry 4 --retry-all-errors -fsSL -H 'Cache-Control: no-cache' "https://atlas-expat.fr/atlas-ui-guide.css?qa=${BUSTER}" -o /tmp/atlas-ui-guide.css
+          curl --retry 4 --retry-all-errors -fsSL -H 'Cache-Control: no-cache' "https://atlas-expat.fr/atlas-ui.css?qa=${BUSTER}" -o /tmp/atlas-ui.css
+          curl --retry 4 --retry-all-errors -fsSL -H 'Cache-Control: no-cache' "https://atlas-expat.fr/atlas-events.js?qa=${BUSTER}" -o /tmp/atlas-events.js
+
+          test "$(git hash-object /tmp/offres.html)" = "eb60b0d2d731a562b8e979a2c727d950f2338687"
+          test "$(git hash-object /tmp/atlas-ui-guide.css)" = "ac948510b05ba90431d5727336c34046c62fdc10"
+          test "$(git hash-object /tmp/atlas-ui.css)" = "a4af3e0236c6622a5488fa7836bca100922f382f"
+          test "$(git hash-object /tmp/atlas-events.js)" = "acdc41734734c21bddf71f0e05047265274a74ec"
+
+          ! grep -q '<style' /tmp/offres.html
+          ! grep -E -q 'Georgia|Times New Roman|fonts\.googleapis\.com|fonts\.gstatic\.com|guide\.css' /tmp/offres.html
+          grep -q 'atlas-ui.css?v=p5ds2-base1' /tmp/offres.html
+          grep -q 'atlas-ui-guide.css?v=p5ds2-1' /tmp/offres.html
+          grep -q "style-src 'self'; font-src 'self'" /tmp/offres.html
+          test "$(grep -o 'data-atlas-event=\"guide_download_click\"' /tmp/offres.html | wc -l)" -eq 2
+          test "$(grep -o 'data-atlas-event=\"free_funnel_cta\"' /tmp/offres.html | wc -l)" -eq 2
+          test "$(grep -o 'https://atlas-exit-delivery.onrender.com/free-guide/usa' /tmp/offres.html | wc -l)" -eq 2
+
+          curl --retry 4 --retry-all-errors -fsSL -D /tmp/v15.headers 'https://atlas-exit-delivery.onrender.com/free-guide/usa' -o /tmp/v15.pdf
+          test "$(wc -c < /tmp/v15.pdf)" -eq 8010883
+          test "$(sha256sum /tmp/v15.pdf | awk '{print $1}')" = "0ad900508565222af12adf04a7fe7a66e774c65258eebeb1d5aa77d5e352016f"
+          grep -Eiq '^content-type: application/pdf' /tmp/v15.headers
+          grep -Eiq '^cache-control: .*private.*no-store' /tmp/v15.headers
 
       - name: Install Playwright
         run: |
           python -m pip install --disable-pip-version-check playwright
           python -m playwright install --with-deps chromium
 
-      - name: Start exact-artifact server
-        shell: bash
-        run: |
-          python -m http.server 4173 --directory atlas-exit >/tmp/http.log 2>&1 &
-          for i in {1..30}; do curl -fsS 'http://127.0.0.1:4173/offres.html?countries=USA' >/dev/null && exit 0; sleep 1; done
-          cat /tmp/http.log; exit 1
-
-      - name: Browser + behavior gate
+      - name: Public browser + behavior gate
         shell: bash
         run: |
           cat > /tmp/qa.py <<'PY'
-          import json
+          import json, time
           from pathlib import Path
           from playwright.sync_api import sync_playwright
 
-          BASE='http://127.0.0.1:4173'
-          URL=f'{BASE}/offres.html?countries=USA'
+          BASE='https://atlas-expat.fr'
+          URL=f'{BASE}/offres.html?countries=USA&qa={int(time.time())}'
           PDF='https://atlas-exit-delivery.onrender.com/free-guide/usa'
           ROADMAP='parcours-usa.html'
           out=Path('qa-artifacts'); out.mkdir(exist_ok=True)
           report={
-            'product_candidate':'b897cf51960ff8b14b8aba459a2f0f7422d28df5',
+            'release_commit':'b897cf51960ff8b14b8aba459a2f0f7422d28df5',
+            'render_deploy':'dep-dao547f40ujc73dubcig',
             'html_blob':'eb60b0d2d731a562b8e979a2c727d950f2338687',
             'guide_css_blob':'ac948510b05ba90431d5727336c34046c62fdc10',
             'shared_css_blob':'a4af3e0236c6622a5488fa7836bca100922f382f',
             'events_blob':'acdc41734734c21bddf71f0e05047265274a74ec',
+            'public_url':URL,
             'viewports':{}
           }
 
@@ -81,10 +89,10 @@ jobs:
               for label,viewport in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
                   page=browser.new_page(viewport=viewport,reduced_motion='no-preference')
                   page.add_init_script(init)
-                  res=page.goto(URL,wait_until='domcontentloaded',timeout=30000)
-                  assert res and res.ok
+                  res=page.goto(URL,wait_until='domcontentloaded',timeout=45000)
+                  assert res and res.ok, (label, res.status if res else None)
                   page.evaluate("document.fonts.ready")
-                  page.wait_for_timeout(650)
+                  page.wait_for_timeout(800)
 
                   shell=page.evaluate("""() => {
                     const resources=performance.getEntriesByType('resource').map(e=>e.name);
@@ -126,8 +134,7 @@ jobs:
                   assert '25' in page.locator('.gd-edition__metric').inner_text()
                   assert 'édition 15.0' in page.locator('.gd-edition__metric').inner_text().lower()
                   cover=page.locator('.gd-edition__cover')
-                  assert cover.count()==1
-                  cover_state=cover.evaluate("el=>({complete:el.complete,naturalWidth:el.naturalWidth,naturalHeight:el.naturalHeight})")
+                  cover_state=cover.evaluate("el=>({complete:el.complete,naturalWidth:el.naturalWidth,naturalHeight:el.naturalHeight,displayWidth:el.getBoundingClientRect().width})")
                   assert cover_state['complete'] and cover_state['naturalWidth']>0 and cover_state['naturalHeight']>0,cover_state
 
                   downloads=page.locator('a[data-atlas-event="guide_download_click"]')
@@ -151,7 +158,7 @@ jobs:
                       roadmap_contract.append(row)
                   assert [x['surface'] for x in roadmap_contract]==['offres','offres_flow'],roadmap_contract
 
-                  # Exercise the real event listener while preventing navigation.
+                  # Exercise production event bindings without leaving the page.
                   page.evaluate("""() => document.addEventListener('click',e=>{if(e.target.closest('[data-atlas-event]')) e.preventDefault();})""")
                   downloads.nth(0).click(); downloads.nth(1).click(); roadmaps.nth(0).click(); roadmaps.nth(1).click()
                   events=page.evaluate('window.__atlasEvents')
@@ -174,20 +181,18 @@ jobs:
                   expanded_geom=assert_no_overflow(page,viewport['width'])
                   page.screenshot(path=str(out/f'{label}-guide-details.png'),full_page=True)
 
-                  # Actual Guide -> Roadmap handoff on exact candidate bytes.
+                  # Actual public Guide -> Roadmap handoff.
                   handoff=browser.new_page(viewport=viewport)
-                  handoff.add_init_script(init)
-                  handoff.goto(URL,wait_until='domcontentloaded',timeout=30000)
+                  handoff.goto(URL,wait_until='domcontentloaded',timeout=45000)
                   handoff.locator('a[data-atlas-surface="offres"][data-atlas-target="roadmap"]').click()
-                  handoff.wait_for_url('**/parcours-usa.html')
+                  handoff.wait_for_url('**/parcours-usa.html',timeout=30000)
                   handoff.wait_for_load_state('domcontentloaded')
                   assert handoff.locator('#routeForm').count()==1
                   handoff_geom=assert_no_overflow(handoff,viewport['width'])
                   handoff.close()
 
                   reduced=browser.new_page(viewport=viewport,reduced_motion='reduce')
-                  reduced.add_init_script(init)
-                  reduced.goto(URL,wait_until='domcontentloaded'); reduced.wait_for_timeout(250)
+                  reduced.goto(URL,wait_until='domcontentloaded',timeout=45000); reduced.wait_for_timeout(250)
                   duration=reduced.locator('.atlas-button').first.evaluate('el=>getComputedStyle(el).transitionDuration')
                   assert duration in ('0s','0.00001s','0.01ms','1e-05s'),duration
                   reduced.close()
@@ -219,6 +224,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: atlas-p5ds2-guide-qa
+          name: atlas-p5ds2-live-guide-qa
           path: qa-artifacts
           if-no-files-found: error
