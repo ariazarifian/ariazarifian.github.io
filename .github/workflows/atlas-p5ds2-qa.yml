@@ -1,0 +1,224 @@
+name: ATLAS P5DS2 Guide QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds2-qa-20260920
+
+permissions:
+  contents: read
+
+jobs:
+  browser-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify exact Product candidate bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object atlas-exit/offres.html)" = "eb60b0d2d731a562b8e979a2c727d950f2338687"
+          test "$(git hash-object atlas-exit/atlas-ui-guide.css)" = "ac948510b05ba90431d5727336c34046c62fdc10"
+          test "$(git hash-object atlas-exit/atlas-ui.css)" = "a4af3e0236c6622a5488fa7836bca100922f382f"
+          test "$(git hash-object atlas-exit/atlas-events.js)" = "acdc41734734c21bddf71f0e05047265274a74ec"
+          ! grep -q '<style' atlas-exit/offres.html
+          ! grep -E -q 'Georgia|Times New Roman|fonts\.googleapis\.com|fonts\.gstatic\.com|guide\.css' atlas-exit/offres.html
+          grep -q 'atlas-ui.css?v=p5ds2-base1' atlas-exit/offres.html
+          grep -q 'atlas-ui-guide.css?v=p5ds2-1' atlas-exit/offres.html
+          grep -q "style-src 'self'; font-src 'self'" atlas-exit/offres.html
+          test "$(grep -o 'data-atlas-event="guide_download_click"' atlas-exit/offres.html | wc -l)" -eq 2
+          test "$(grep -o 'data-atlas-event="free_funnel_cta"' atlas-exit/offres.html | wc -l)" -eq 2
+          test "$(grep -o 'https://atlas-exit-delivery.onrender.com/free-guide/usa' atlas-exit/offres.html | wc -l)" -eq 2
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Start exact-artifact server
+        shell: bash
+        run: |
+          python -m http.server 4173 --directory atlas-exit >/tmp/http.log 2>&1 &
+          for i in {1..30}; do curl -fsS 'http://127.0.0.1:4173/offres.html?countries=USA' >/dev/null && exit 0; sleep 1; done
+          cat /tmp/http.log; exit 1
+
+      - name: Browser + behavior gate
+        shell: bash
+        run: |
+          cat > /tmp/qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          BASE='http://127.0.0.1:4173'
+          URL=f'{BASE}/offres.html?countries=USA'
+          PDF='https://atlas-exit-delivery.onrender.com/free-guide/usa'
+          ROADMAP='parcours-usa.html'
+          out=Path('qa-artifacts'); out.mkdir(exist_ok=True)
+          report={
+            'product_candidate':'b897cf51960ff8b14b8aba459a2f0f7422d28df5',
+            'html_blob':'eb60b0d2d731a562b8e979a2c727d950f2338687',
+            'guide_css_blob':'ac948510b05ba90431d5727336c34046c62fdc10',
+            'shared_css_blob':'a4af3e0236c6622a5488fa7836bca100922f382f',
+            'events_blob':'acdc41734734c21bddf71f0e05047265274a74ec',
+            'viewports':{}
+          }
+
+          init="""
+          window.__atlasEvents=[];
+          window.ATLAS_EVENT_COLLECTOR=(name,payload)=>{window.__atlasEvents.push({name,payload});return true;};
+          """
+
+          def assert_no_overflow(page, width):
+              geom=page.evaluate("""() => ({doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,vw:innerWidth})""")
+              assert geom['doc'] <= width + 1 and geom['body'] <= width + 1, geom
+              return geom
+
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True)
+              for label,viewport in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+                  page=browser.new_page(viewport=viewport,reduced_motion='no-preference')
+                  page.add_init_script(init)
+                  res=page.goto(URL,wait_until='domcontentloaded',timeout=30000)
+                  assert res and res.ok
+                  page.evaluate("document.fonts.ready")
+                  page.wait_for_timeout(650)
+
+                  shell=page.evaluate("""() => {
+                    const resources=performance.getEntriesByType('resource').map(e=>e.name);
+                    const body=getComputedStyle(document.body),h1=getComputedStyle(document.querySelector('h1'));
+                    return {
+                      bodyFont:body.fontFamily,
+                      h1Font:h1.fontFamily,
+                      fontsStatus:document.fonts.status,
+                      manropeReady:document.fonts.check('16px Manrope'),
+                      fontResources:resources.filter(x=>x.includes('Manrope-Variable.ttf')),
+                      forbiddenFonts:resources.filter(x=>x.includes('fonts.googleapis.com')||x.includes('fonts.gstatic.com')),
+                      inlineStyleBlocks:document.querySelectorAll('style').length,
+                      inlineStyleAttrs:document.querySelectorAll('[style]').length,
+                      oldProductNav:document.querySelectorAll('.product-nav').length
+                    };
+                  }""")
+                  assert shell['fontsStatus']=='loaded' and shell['manropeReady'],shell
+                  assert 'Manrope' in shell['bodyFont'] and 'Manrope' in shell['h1Font'],shell
+                  assert 'Georgia' not in shell['h1Font'] and 'Times' not in shell['h1Font'],shell
+                  assert shell['fontResources'] and not shell['forbiddenFonts'],shell
+                  assert shell['inlineStyleBlocks']==0 and shell['inlineStyleAttrs']==0,shell
+                  assert shell['oldProductNav']==0,shell
+
+                  geom=assert_no_overflow(page,viewport['width'])
+                  nav=page.locator('.atlas-shell__nav a'); assert nav.count()==4
+                  nav_info=[]
+                  for i in range(4):
+                      link=nav.nth(i); box=link.bounding_box(); fs=link.evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')
+                      assert box and box['x']>=-1 and box['x']+box['width']<=viewport['width']+1,(label,box)
+                      if label=='mobile':
+                          assert fs>=13,(link.text_content(),fs)
+                          assert box['height']>=42,(link.text_content(),box)
+                      nav_info.append({'text':link.text_content().strip(),'fontSize':fs,'box':box,'current':link.get_attribute('aria-current')})
+                  assert sum(1 for x in nav_info if x['current']=='page')==1
+                  assert next(x for x in nav_info if x['current']=='page')['text']=='Guide USA'
+
+                  assert page.locator('h1').count()==1
+                  assert page.locator('.gd-edition').count()==1
+                  assert '25' in page.locator('.gd-edition__metric').inner_text()
+                  assert 'édition 15.0' in page.locator('.gd-edition__metric').inner_text().lower()
+                  cover=page.locator('.gd-edition__cover')
+                  assert cover.count()==1
+                  cover_state=cover.evaluate("el=>({complete:el.complete,naturalWidth:el.naturalWidth,naturalHeight:el.naturalHeight})")
+                  assert cover_state['complete'] and cover_state['naturalWidth']>0 and cover_state['naturalHeight']>0,cover_state
+
+                  downloads=page.locator('a[data-atlas-event="guide_download_click"]')
+                  assert downloads.count()==2
+                  download_contract=[]
+                  for i in range(2):
+                      a=downloads.nth(i)
+                      row={'href':a.get_attribute('href'),'surface':a.get_attribute('data-atlas-surface'),'target':a.get_attribute('data-atlas-target')}
+                      assert row['href']==PDF,row
+                      assert row['target']=='v15_pdf',row
+                      download_contract.append(row)
+                  assert [x['surface'] for x in download_contract]==['offres','guide_card'],download_contract
+
+                  roadmaps=page.locator('a[data-atlas-event="free_funnel_cta"][data-atlas-target="roadmap"]')
+                  assert roadmaps.count()==2
+                  roadmap_contract=[]
+                  for i in range(2):
+                      a=roadmaps.nth(i)
+                      row={'href':a.get_attribute('href'),'surface':a.get_attribute('data-atlas-surface'),'target':a.get_attribute('data-atlas-target')}
+                      assert row['href']==ROADMAP,row
+                      roadmap_contract.append(row)
+                  assert [x['surface'] for x in roadmap_contract]==['offres','offres_flow'],roadmap_contract
+
+                  # Exercise the real event listener while preventing navigation.
+                  page.evaluate("""() => document.addEventListener('click',e=>{if(e.target.closest('[data-atlas-event]')) e.preventDefault();})""")
+                  downloads.nth(0).click(); downloads.nth(1).click(); roadmaps.nth(0).click(); roadmaps.nth(1).click()
+                  events=page.evaluate('window.__atlasEvents')
+                  expected=[
+                    {'name':'guide_download_click','payload':{'surface':'offres','target':'v15_pdf','route_version':'usa-v3'}},
+                    {'name':'guide_download_click','payload':{'surface':'guide_card','target':'v15_pdf','route_version':'usa-v3'}},
+                    {'name':'free_funnel_cta','payload':{'surface':'offres','target':'roadmap','route_version':'usa-v3'}},
+                    {'name':'free_funnel_cta','payload':{'surface':'offres_flow','target':'roadmap','route_version':'usa-v3'}}
+                  ]
+                  assert events==expected,(events,expected)
+
+                  assert page.locator('.gd-disclosures details').count()==3
+                  assert page.locator('.gd-disclosures details[open]').count()==1
+                  page.screenshot(path=str(out/f'{label}-guide.png'),full_page=True)
+                  for i in range(3):
+                      d=page.locator('.gd-disclosures details').nth(i)
+                      if not d.get_attribute('open'):
+                          d.locator('summary').click()
+                  assert page.locator('.gd-disclosures details[open]').count()==3
+                  expanded_geom=assert_no_overflow(page,viewport['width'])
+                  page.screenshot(path=str(out/f'{label}-guide-details.png'),full_page=True)
+
+                  # Actual Guide -> Roadmap handoff on exact candidate bytes.
+                  handoff=browser.new_page(viewport=viewport)
+                  handoff.add_init_script(init)
+                  handoff.goto(URL,wait_until='domcontentloaded',timeout=30000)
+                  handoff.locator('a[data-atlas-surface="offres"][data-atlas-target="roadmap"]').click()
+                  handoff.wait_for_url('**/parcours-usa.html')
+                  handoff.wait_for_load_state('domcontentloaded')
+                  assert handoff.locator('#routeForm').count()==1
+                  handoff_geom=assert_no_overflow(handoff,viewport['width'])
+                  handoff.close()
+
+                  reduced=browser.new_page(viewport=viewport,reduced_motion='reduce')
+                  reduced.add_init_script(init)
+                  reduced.goto(URL,wait_until='domcontentloaded'); reduced.wait_for_timeout(250)
+                  duration=reduced.locator('.atlas-button').first.evaluate('el=>getComputedStyle(el).transitionDuration')
+                  assert duration in ('0s','0.00001s','0.01ms','1e-05s'),duration
+                  reduced.close()
+
+                  report['viewports'][label]={
+                    'httpStatus':res.status,
+                    'shell':shell,
+                    'nav':nav_info,
+                    'overflow':geom,
+                    'expandedOverflow':expanded_geom,
+                    'cover':cover_state,
+                    'downloadContract':download_contract,
+                    'roadmapContract':roadmap_contract,
+                    'events':events,
+                    'roadmapHandoff':True,
+                    'handoffOverflow':handoff_geom,
+                    'detailsExpanded':3,
+                    'reducedMotionTransitionDuration':duration
+                  }
+                  page.close()
+              browser.close()
+
+          Path('qa-artifacts/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/qa.py
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5ds2-guide-qa
+          path: qa-artifacts
+          if-no-files-found: error
