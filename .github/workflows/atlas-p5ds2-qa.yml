@@ -168,7 +168,7 @@ jobs:
                   page.screenshot(path=str(out/f'{label}-guide.png'),full_page=True)
                   for i in range(3):
                       d=page.locator('.gd-disclosures details').nth(i)
-                      if not d.get_attribute('open'):
+                      if d.get_attribute('open') is None:
                           d.locator('summary').click()
                   assert page.locator('.gd-disclosures details[open]').count()==3
                   expanded_geom=assert_no_overflow(page,viewport['width'])
