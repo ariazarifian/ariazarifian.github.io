@@ -1,0 +1,33 @@
+name: Atlas P5DS3 Release QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds3-release-qa-20260921
+
+permissions:
+  contents: read
+
+jobs:
+  public-explorer-release-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Playwright Chromium
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Run public Explorer release gate
+        run: node .github/atlas-p5ds3-release-qa.mjs
+      - name: Upload screenshots and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5ds3-release-qa
+          path: artifacts/p5ds3-release
+          if-no-files-found: error
+          retention-days: 14
