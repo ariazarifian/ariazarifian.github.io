@@ -1,0 +1,38 @@
+name: Atlas P5DS3 Explorer QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds3-explorer-qa-20260921
+
+permissions:
+  contents: read
+
+jobs:
+  explorer-browser-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Playwright Chromium
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Start exact-branch static server
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 > /tmp/atlas-http.log 2>&1 &
+          echo $! > /tmp/atlas-http.pid
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4173/atlas-exit/index.html >/dev/null && break; sleep 1; done
+      - name: Run Explorer real-browser gate
+        run: node .github/atlas-p5ds3-explorer-qa.mjs
+      - name: Upload screenshots and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5ds3-explorer-qa
+          path: artifacts/p5ds3
+          if-no-files-found: error
+          retention-days: 14
