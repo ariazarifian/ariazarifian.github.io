@@ -1,0 +1,162 @@
+/* P5DS3 — Explorer composition layer. Shared shell/type/tokens live in atlas-ui.css. */
+:root{
+  color-scheme:dark;
+  --bg:var(--atlas-navy-950);
+  --panel:#101c20;
+  --panel2:#15252a;
+  --ink:#f2f1ec;
+  --muted:#9babad;
+  --line:rgba(200,218,217,.13);
+  --gold:#d6c19b;
+  --teal:#79aa9e;
+  --mono:var(--atlas-mono);
+  --sans:var(--atlas-font);
+  --serif:var(--atlas-font);
+}
+html,body{height:100%;background:var(--bg);color:var(--ink)}
+body{display:flex;flex-direction:column;overflow:hidden;font:400 14px/1.5 var(--atlas-font);font-synthesis:none;text-rendering:optimizeLegibility}
+body::selection{background:#d6c19b;color:#091316}
+h1,h2,h3,.tip-head strong,.map-caption p{font-family:var(--atlas-font);font-style:normal}
+h2{font-weight:720;letter-spacing:-.045em}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,#worldMap:focus-visible{outline:2px solid #d6c19b;outline-offset:3px}
+
+/* Canonical Atlas shell, expressed in Explorer's dark spatial surface. */
+.atlas-shell--explorer{position:relative;top:auto;flex:0 0 auto;background:rgba(9,19,22,.94);border-bottom:1px solid rgba(216,226,223,.12);backdrop-filter:blur(18px) saturate(125%);-webkit-backdrop-filter:blur(18px) saturate(125%);color:#f5f3ed}
+.atlas-shell--explorer .atlas-shell__inner{width:100%;max-width:none;min-height:72px;padding:0 28px;grid-template-columns:auto minmax(0,1fr) auto;gap:28px}
+.atlas-shell--explorer .atlas-wordmark{color:#f5f3ed}
+.atlas-shell--explorer .atlas-wordmark__mark{color:#d6c19b}
+.atlas-shell--explorer .atlas-wordmark__exit{color:#8fa1a5}
+.atlas-shell--explorer .atlas-shell__nav a{color:#91a2a6}
+.atlas-shell--explorer .atlas-shell__nav a:hover{background:rgba(255,255,255,.055);color:#f7f5f0}
+.atlas-shell--explorer .atlas-shell__nav a[aria-current="page"]{background:rgba(214,193,155,.115);color:#f7f5f0}
+.explorer-shell__tools{display:flex;align-items:center;justify-content:flex-end;gap:8px;white-space:nowrap}
+.explorer-shell__compare,.explorer-shell__help,.explorer-shell__project{min-height:40px;border:1px solid rgba(214,226,223,.14);border-radius:10px;background:rgba(255,255,255,.025);color:#a9b7ba;font-size:12px;font-weight:650;transition:background var(--atlas-fast) var(--atlas-ease),border-color var(--atlas-fast) var(--atlas-ease),color var(--atlas-fast) var(--atlas-ease),transform var(--atlas-fast) var(--atlas-ease)}
+.explorer-shell__compare{display:flex;align-items:center;gap:8px;padding:0 12px}
+.explorer-shell__compare:hover,.explorer-shell__help:hover{background:rgba(255,255,255,.07);border-color:rgba(214,193,155,.28);color:#f7f5f0}
+.explorer-shell__compare.on{color:#e2cda8;border-color:rgba(214,193,155,.34);background:rgba(214,193,155,.08)}
+.explorer-shell__compare #savedCount{display:grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border:0;border-radius:7px;background:rgba(214,193,155,.12);color:#e3cfa9;font:700 10px/1 var(--atlas-mono)}
+.explorer-shell__help{width:40px;padding:0;font-size:14px}
+.explorer-shell__project{display:flex;align-items:center;gap:11px;padding:0 14px;border-color:rgba(214,193,155,.32);color:#e4d3b2}
+.explorer-shell__project:hover{background:#d6c19b;border-color:#d6c19b;color:#0b1518;transform:translateY(-1px)}
+
+/* Let the app fill whatever height the shared shell leaves. */
+.workspace{height:auto;flex:1;min-height:0;background:#091316}
+
+/* Sidebar: more legible, quieter, still dense enough for exploration. */
+.sidebar{width:314px;flex-basis:314px;padding:26px 24px 0;background:linear-gradient(165deg,#111e22 0%,#0c171b 86%);border-right-color:rgba(213,226,223,.12);box-shadow:18px 0 48px rgba(0,0,0,.09)}
+.sidebar-top{margin-bottom:19px}
+.eyebrow{font:750 10px/1.5 var(--atlas-font);letter-spacing:.115em;text-transform:uppercase;color:#79aa9e}
+.sidebar h1{margin:9px 0 7px;font-size:27px;line-height:1.08;font-weight:750;letter-spacing:-.045em}
+.sidebar-top p{font-size:12px;line-height:1.55;color:#8fa1a5}
+.scope-toggle{border-radius:10px;background:#0b1519;border-color:rgba(200,218,217,.14);padding:4px}
+.scope-toggle button{min-height:34px;border-radius:7px;font-size:11px;font-weight:650}
+.scope-toggle button.on{background:#203438;color:#f2f1ec}
+.search{height:44px;border-radius:10px;padding:0 12px;background:#0a1418;border-color:rgba(200,218,217,.14);transition:border-color var(--atlas-fast),box-shadow var(--atlas-fast)}
+.search:focus-within{border-color:rgba(214,193,155,.62);box-shadow:0 0 0 3px rgba(214,193,155,.06)}
+.search input{font-size:12px;color:#edf0ec}
+.search kbd{border-radius:5px;font-size:10px}
+.filter-section{padding:18px 0 16px;border-bottom-color:rgba(200,218,217,.105)}
+.filter-label{font-size:12px;font-weight:600;color:#c2cccb;margin-bottom:12px}
+.filter-label output{font-size:10px}
+.link-button{font-size:11px}
+.regions{gap:7px}
+.regions button{min-height:34px;border-radius:8px;padding:7px 4px;font-size:10.5px;font-weight:600;border-color:rgba(200,218,217,.13)}
+.regions button.on{background:#203634;border-color:#496f67;color:#eef3ef}
+.range-label{font-size:9.5px}
+.micro{font-size:10.5px;line-height:1.55}
+.results-heading{font:650 10px/1.4 var(--atlas-mono)}
+.country-row{gap:11px;padding:11px 6px;border-bottom-color:rgba(200,218,217,.095);border-radius:8px;transition:background var(--atlas-fast) var(--atlas-ease)}
+.country-row:hover,.country-row.selected{background:#172a2f}
+.country-code{width:31px;height:27px;border-radius:7px;background:#213337;border-color:#354b50;font-size:9px}
+.row-copy b{font-size:12.5px;font-weight:650}
+.row-copy small{font-size:9.5px}
+.row-value{font-size:10px}
+.sidebar-footer{padding:14px 0 16px;font-size:10px;border-top-color:rgba(200,218,217,.11)}
+
+/* Map remains the hero. Controls recede until used. */
+.map-shell{background:radial-gradient(ellipse at 48% 48%,#142a2e 0%,#0a1418 72%,#081114 100%)}
+.map-toolbar{top:22px;left:26px;right:22px}
+.layers{padding:4px;border-radius:11px;border-color:rgba(210,225,223,.15);background:rgba(10,20,24,.78);box-shadow:0 12px 38px rgba(0,0,0,.13)}
+.layers button{min-height:36px;padding:8px 15px;border-radius:8px;font-size:11.5px;font-weight:650}
+.layers button.on{background:#263a3d;color:#f5f1e8;box-shadow:0 4px 16px rgba(0,0,0,.18)}
+.layers small{font-size:8.5px}
+.map-caption{top:105px;left:29px}
+.map-caption .eyebrow{font-size:9px;color:#76979a}
+.map-caption p{margin:7px 0;font-size:22px;font-weight:620;letter-spacing:-.035em;color:#c8d3d0}
+.map-controls{right:22px;bottom:68px;padding:5px;border-radius:11px;background:rgba(12,24,29,.82);border-color:rgba(210,225,223,.17);box-shadow:0 18px 46px rgba(0,0,0,.18)}
+.map-controls button{width:36px;height:36px;border-radius:7px;font:500 20px/1 var(--atlas-font)}
+.map-help{bottom:69px;padding:9px 15px;border-radius:999px;font-size:10px;background:rgba(10,22,26,.76);border-color:rgba(210,225,223,.15)}
+.legend{font-size:9.5px}
+.map-footnote{font-size:7.5px}
+
+/* Inspector: tactile destination object, not a floating legacy card. */
+.inspector{top:14px;right:14px;bottom:62px;width:360px;border-radius:18px;border-color:rgba(213,227,224,.16);background:rgba(13,27,32,.94);box-shadow:0 30px 100px rgba(0,0,0,.46);backdrop-filter:blur(22px) saturate(118%);-webkit-backdrop-filter:blur(22px) saturate(118%)}
+.inspector-visual{height:152px;border-bottom-color:rgba(213,227,224,.13);background:radial-gradient(ellipse at 72% 16%,rgba(83,125,115,.48),transparent 70%),linear-gradient(120deg,#14292c,#193239)}
+.inspector-visual .coordinates{font-size:9px}
+.inspector-tools button{border-radius:9px}
+.inspector-body{padding:8px 25px 26px}
+.inspector-title{margin-bottom:10px}
+.inspector-title h2{font-family:var(--atlas-font);font-size:34px;line-height:1.04;font-weight:760;letter-spacing:-.052em}
+.metric-grid,.detail-grid{gap:1px;background:rgba(208,222,220,.1);border-radius:12px;overflow:hidden}
+.metric,.detail{background:#102126}
+.inspector .button{border-radius:10px;font-weight:700}
+.tooltip{width:252px;border-radius:14px;background:rgba(14,29,34,.96);border-color:rgba(194,218,213,.24);box-shadow:0 22px 70px rgba(0,0,0,.48);padding:18px}
+.tip-head strong{font-size:21px;font-weight:740;letter-spacing:-.035em}
+
+/* Comparator / dialogs inherit the same typography and finish. */
+.compare-tray{border-radius:14px;background:rgba(12,25,30,.92);border-color:rgba(210,225,223,.16);box-shadow:0 20px 60px rgba(0,0,0,.32);backdrop-filter:blur(18px)}
+.button{border-radius:10px;font-weight:700}
+.modal{border-radius:20px;background:#101f24;border-color:rgba(210,225,223,.16);box-shadow:0 36px 120px rgba(0,0,0,.56)}
+.modal h2{font-family:var(--atlas-font);font-weight:740;letter-spacing:-.05em}
+.modal h2 em{font-family:inherit;font-style:normal;color:#d6c19b}
+.help-grid p{font-size:12px}
+
+@media(max-width:1180px){
+  .atlas-shell--explorer .atlas-shell__inner{gap:16px;padding-inline:22px}
+  .atlas-shell--explorer .atlas-shell__nav{gap:4px}
+  .atlas-shell--explorer .atlas-shell__nav a{padding-inline:8px;font-size:12px}
+  .explorer-shell__project{display:none}
+  .sidebar{width:300px;flex-basis:300px;padding-inline:21px}
+}
+
+@media(max-width:980px){
+  .atlas-shell--explorer .atlas-shell__inner{grid-template-columns:auto minmax(0,1fr) auto}
+  .explorer-shell__tools{gap:6px}
+  .explorer-shell__compare{padding-inline:10px}
+  .explorer-shell__compare-label{display:none}
+  .explorer-shell__compare #savedCount{min-width:28px}
+  .sidebar{width:294px;flex-basis:294px}
+}
+
+@media(max-width:650px){
+  .atlas-shell--explorer .atlas-shell__inner{padding:12px 18px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:10px 12px}
+  .atlas-shell--explorer .atlas-wordmark{grid-column:1;grid-row:1;align-self:center}
+  .atlas-shell--explorer .atlas-shell__nav{grid-column:1/-1;grid-row:2;margin:0;padding-top:10px;border-top-color:rgba(214,226,223,.12)}
+  .atlas-shell--explorer .atlas-shell__nav a{min-height:42px;padding:9px 8px;font-size:13px;color:#9babad}
+  .atlas-shell--explorer .atlas-shell__nav a[aria-current="page"]{color:#f7f5f0}
+  .explorer-shell__tools{grid-column:2;grid-row:1;align-self:center}
+  .explorer-shell__help{width:38px;min-height:38px}
+  .explorer-shell__compare{min-height:38px;padding:0 8px}
+  .explorer-shell__project{display:none}
+  .sidebar{padding-top:22px}
+  .sidebar h1{font-size:25px}
+  .filter-mobile{min-height:40px;border-radius:10px;font-size:12px;font-weight:700}
+  .layers{max-width:calc(100vw - 92px);overflow-x:auto;scrollbar-width:none}
+  .layers::-webkit-scrollbar{display:none}
+  .layers button{min-height:38px;padding:8px 12px;font-size:11px;white-space:nowrap}
+  .map-toolbar{top:14px;left:14px;right:14px;gap:8px}
+  .map-caption{top:76px;left:16px}
+  .map-caption p{font-size:18px}
+  .map-controls{right:14px;bottom:62px}
+  .map-help{display:none}
+  .legend{left:16px;bottom:27px;max-width:72%;font-size:8.5px}
+  .map-footnote{left:16px;right:14px}
+  .inspector{top:10px;right:10px;bottom:10px;width:calc(100% - 20px);max-width:none;border-radius:18px}
+  .inspector-title h2{font-size:31px}
+  .tooltip{display:none!important}
+}
+
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
+}
