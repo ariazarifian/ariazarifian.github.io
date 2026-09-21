@@ -84,5 +84,19 @@
     const timer=setInterval(()=>{tries++;if(audit()||tries>160)clearInterval(timer);},50);
   }
 
-  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual)};
+  // PEX-D0: load the Product-owned evidence contract as a separate, self-contained
+  // layer. This intentionally leaves the accepted Explorer shell/business logic
+  // untouched; the evidence module progressively enhances supported inspectors.
+  function loadCountryEvidence(){
+    if(document.querySelector('[data-atlas-country-evidence]')) return;
+    const css=document.createElement('link');
+    css.rel='stylesheet';css.href='atlas-country-evidence.css?v=pex-d0-1';css.dataset.atlasCountryEvidence='style';
+    document.head.append(css);
+    const script=document.createElement('script');
+    script.src='country-evidence.js?v=pex-d0-1';script.async=false;script.dataset.atlasCountryEvidence='runtime';
+    document.head.append(script);
+  }
+  loadCountryEvidence();
+
+  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d0-1'};
 })();
