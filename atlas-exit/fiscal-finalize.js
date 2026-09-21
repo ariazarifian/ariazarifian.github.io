@@ -84,19 +84,32 @@
     const timer=setInterval(()=>{tries++;if(audit()||tries>160)clearInterval(timer);},50);
   }
 
-  // PEX-D0: load the Product-owned evidence contract as a separate, self-contained
-  // layer. This intentionally leaves the accepted Explorer shell/business logic
-  // untouched; the evidence module progressively enhances supported inspectors.
+  // PEX-D1B: keep the PEX-D1A evidence contract isolated, then load the first
+  // additional published country module only after that contract is available.
+  function loadAustraliaEvidence(){
+    if(document.querySelector('[data-atlas-country-evidence-australia]')) return;
+    const australia=document.createElement('script');
+    australia.src='country-evidence-australia.js?v=pex-d1b-1';
+    australia.async=false;
+    australia.dataset.atlasCountryEvidenceAustralia='runtime';
+    document.head.append(australia);
+  }
+
   function loadCountryEvidence(){
-    if(document.querySelector('[data-atlas-country-evidence]')) return;
-    const css=document.createElement('link');
-    css.rel='stylesheet';css.href='atlas-country-evidence.css?v=pex-d0-1';css.dataset.atlasCountryEvidence='style';
-    document.head.append(css);
+    if(window.ATLAS_COUNTRY_EVIDENCE){loadAustraliaEvidence();return;}
+    const existing=document.querySelector('[data-atlas-country-evidence="runtime"]');
+    if(existing){existing.addEventListener('load',loadAustraliaEvidence,{once:true});return;}
+    if(!document.querySelector('[data-atlas-country-evidence="style"]')){
+      const css=document.createElement('link');
+      css.rel='stylesheet';css.href='atlas-country-evidence.css?v=pex-d0-1';css.dataset.atlasCountryEvidence='style';
+      document.head.append(css);
+    }
     const script=document.createElement('script');
-    script.src='country-evidence.js?v=pex-d0-1';script.async=false;script.dataset.atlasCountryEvidence='runtime';
+    script.src='country-evidence.js?v=pex-d1a-1';script.async=false;script.dataset.atlasCountryEvidence='runtime';
+    script.addEventListener('load',loadAustraliaEvidence,{once:true});
     document.head.append(script);
   }
   loadCountryEvidence();
 
-  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d0-1'};
+  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d1b-1'};
 })();
