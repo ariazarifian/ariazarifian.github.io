@@ -1,0 +1,202 @@
+name: ATLAS P5Q0 Guide Candidate QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5q0-guide-qa-20260921
+
+permissions:
+  contents: read
+
+jobs:
+  guide-candidate-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify bounded candidate and live baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=8eb016606487942d73a7eb59860e44688aba6440
+          CANDIDATE=25fd865a2150aa2e9f55c9f4463d01d6e2360d6c
+          test "$(git hash-object atlas-exit/offres.html)" = "5cb7ca83f74f756644b8d14e1d5d48ad4be0c616"
+          test "$(git hash-object atlas-exit/atlas-ui-guide.css)" = "66faa5ae4a6f620e94089d8eb5ea2d2fb783489b"
+          test "$(git hash-object atlas-exit/atlas-events.js)" = "acdc41734734c21bddf71f0e05047265274a74ec"
+          git diff --name-only "$BASE" "$CANDIDATE" | sort > /tmp/changed.txt
+          printf '%s\n' atlas-exit/atlas-ui-guide.css atlas-exit/offres.html | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+
+          BUSTER="p5q0-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          curl --retry 4 --retry-all-errors -fsSL -H 'Cache-Control: no-cache' "https://atlas-expat.fr/offres.html?qa=${BUSTER}" -o /tmp/live-offres.html
+          curl --retry 4 --retry-all-errors -fsSL -H 'Cache-Control: no-cache' "https://atlas-expat.fr/atlas-ui-guide.css?qa=${BUSTER}" -o /tmp/live-guide.css
+          test "$(git hash-object /tmp/live-offres.html)" = "eb60b0d2d731a562b8e979a2c727d950f2338687"
+          test "$(git hash-object /tmp/live-guide.css)" = "ac948510b05ba90431d5727336c34046c62fdc10"
+
+          ! grep -q '<style' atlas-exit/offres.html
+          ! grep -E -q 'Georgia|Times New Roman|fonts\.googleapis\.com|fonts\.gstatic\.com' atlas-exit/offres.html
+          grep -q 'atlas-ui-guide.css?v=p5q0-1' atlas-exit/offres.html
+          grep -q "style-src 'self'; font-src 'self'" atlas-exit/offres.html
+          test "$(grep -o 'data-atlas-event=\"guide_download_click\"' atlas-exit/offres.html | wc -l)" -eq 2
+          test "$(grep -o 'data-atlas-event=\"free_funnel_cta\"' atlas-exit/offres.html | wc -l)" -eq 2
+          test "$(grep -o 'https://atlas-exit-delivery.onrender.com/free-guide/usa' atlas-exit/offres.html | wc -l)" -eq 2
+
+          curl --retry 4 --retry-all-errors -fsSL -D /tmp/v15.headers 'https://atlas-exit-delivery.onrender.com/free-guide/usa' -o /tmp/v15.pdf
+          test "$(wc -c < /tmp/v15.pdf)" -eq 8012032
+          test "$(sha256sum /tmp/v15.pdf | awk '{print $1}')" = "a91df6b806c65cba8a2c868b996155e29429b7494815368c768aa676b21781dc"
+          grep -Eiq '^content-type: application/pdf' /tmp/v15.headers
+          grep -Eiq '^cache-control: .*private.*no-store' /tmp/v15.headers
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Capture before and test candidate
+        shell: bash
+        run: |
+          python -m http.server 8765 --directory atlas-exit >/tmp/p5q0-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          cat > /tmp/qa.py <<'PY'
+          import json, time
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          LIVE=f'https://atlas-expat.fr/offres.html?qa=p5q0-{int(time.time())}'
+          CAND='http://127.0.0.1:8765/offres.html?countries=USA'
+          PDF='https://atlas-exit-delivery.onrender.com/free-guide/usa'
+          out=Path('qa-artifacts'); out.mkdir(exist_ok=True)
+          report={
+            'candidate_commit':'25fd865a2150aa2e9f55c9f4463d01d6e2360d6c',
+            'candidate_base':'8eb016606487942d73a7eb59860e44688aba6440',
+            'live_static_commit':'227afdb4eec7c88ae92871d89b56d17053583897',
+            'candidate_html_blob':'5cb7ca83f74f756644b8d14e1d5d48ad4be0c616',
+            'candidate_guide_css_blob':'66faa5ae4a6f620e94089d8eb5ea2d2fb783489b',
+            'before':{},'after':{}
+          }
+
+          init="""
+          window.__atlasEvents=[];
+          window.ATLAS_EVENT_COLLECTOR=(name,payload)=>{window.__atlasEvents.push({name,payload});return true;};
+          """
+
+          def overflow(page,w):
+              g=page.evaluate("""() => ({doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,vw:innerWidth})""")
+              assert g['doc'] <= w+1 and g['body'] <= w+1, g
+              return g
+
+          def capture_live(browser,label,viewport):
+              p=browser.new_page(viewport=viewport)
+              r=p.goto(LIVE,wait_until='domcontentloaded',timeout=45000)
+              assert r and r.ok,(label,r.status if r else None)
+              p.evaluate('document.fonts.ready'); p.wait_for_timeout(700)
+              g=overflow(p,viewport['width'])
+              assert p.locator('h1').count()==1
+              assert p.locator('.gd-edition__cover').count()==1
+              p.screenshot(path=str(out/f'before-{label}.png'),full_page=True)
+              info={'status':r.status,'overflow':g,'h1':p.locator('h1').inner_text(),'height':p.evaluate('document.documentElement.scrollHeight')}
+              p.close(); return info
+
+          def candidate(browser,label,viewport):
+              page=browser.new_page(viewport=viewport,reduced_motion='no-preference')
+              page.add_init_script(init)
+              errors=[]
+              page.on('pageerror',lambda e: errors.append(str(e)))
+              r=page.goto(CAND,wait_until='domcontentloaded',timeout=45000)
+              assert r and r.ok,(label,r.status if r else None)
+              page.evaluate('document.fonts.ready'); page.wait_for_timeout(700)
+              g=overflow(page,viewport['width'])
+              shell=page.evaluate("""() => {
+                const resources=performance.getEntriesByType('resource').map(e=>e.name);
+                const b=getComputedStyle(document.body),h=getComputedStyle(document.querySelector('h1'));
+                return {bodyFont:b.fontFamily,h1Font:h.fontFamily,fontsStatus:document.fonts.status,
+                  manropeReady:document.fonts.check('16px Manrope'),
+                  manrope:resources.filter(x=>x.includes('Manrope-Variable.ttf')),
+                  forbidden:resources.filter(x=>x.includes('fonts.googleapis.com')||x.includes('fonts.gstatic.com')),
+                  inlineStyleBlocks:document.querySelectorAll('style').length,
+                  inlineStyleAttrs:document.querySelectorAll('[style]').length};
+              }""")
+              assert shell['fontsStatus']=='loaded' and shell['manropeReady'] and shell['manrope'],shell
+              assert 'Manrope' in shell['bodyFont'] and 'Manrope' in shell['h1Font'],shell
+              assert not shell['forbidden'] and shell['inlineStyleBlocks']==0 and shell['inlineStyleAttrs']==0,shell
+
+              nav=page.locator('.atlas-shell__nav a'); assert nav.count()==4
+              nav_info=[]
+              for i in range(4):
+                  a=nav.nth(i); box=a.bounding_box(); fs=a.evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')
+                  assert box and box['x']>=-1 and box['x']+box['width']<=viewport['width']+1,(label,box)
+                  if label=='mobile':
+                      assert fs>=13,(a.inner_text(),fs)
+                      assert box['height']>=42,(a.inner_text(),box)
+                  nav_info.append({'text':a.inner_text(),'fontSize':fs,'box':box,'current':a.get_attribute('aria-current')})
+              assert sum(1 for x in nav_info if x['current']=='page')==1
+
+              cover=page.locator('.gq-cover'); assert cover.count()==1
+              cover_state=cover.evaluate("el=>({complete:el.complete,naturalWidth:el.naturalWidth,naturalHeight:el.naturalHeight,w:el.getBoundingClientRect().width})")
+              assert cover_state['complete'] and cover_state['naturalWidth']>0 and cover_state['naturalHeight']>0,cover_state
+              assert page.locator('.gq-proof-facts strong').count()==3
+              assert page.locator('.gq-route-list li').count()==8
+
+              downloads=page.locator('a[data-atlas-event="guide_download_click"]'); assert downloads.count()==2
+              roadmaps=page.locator('a[data-atlas-event="free_funnel_cta"][data-atlas-target="roadmap"]'); assert roadmaps.count()==2
+              assert [downloads.nth(i).get_attribute('href') for i in range(2)]==[PDF,PDF]
+              assert [roadmaps.nth(i).get_attribute('href') for i in range(2)]==['parcours-usa.html','parcours-usa.html']
+              page.evaluate("""() => document.addEventListener('click',e=>{if(e.target.closest('[data-atlas-event]')) e.preventDefault();})""")
+              downloads.nth(0).click(); downloads.nth(1).click(); roadmaps.nth(0).click(); roadmaps.nth(1).click()
+              events=page.evaluate('window.__atlasEvents')
+              expected=[
+                {'name':'guide_download_click','payload':{'surface':'offres','target':'v15_pdf','route_version':'usa-v3'}},
+                {'name':'guide_download_click','payload':{'surface':'guide_card','target':'v15_pdf','route_version':'usa-v3'}},
+                {'name':'free_funnel_cta','payload':{'surface':'offres','target':'roadmap','route_version':'usa-v3'}},
+                {'name':'free_funnel_cta','payload':{'surface':'offres_flow','target':'roadmap','route_version':'usa-v3'}}]
+              assert events==expected,(events,expected)
+
+              assert page.locator('.gq-disclosures details').count()==3
+              assert page.locator('.gq-disclosures details[open]').count()==1
+              page.screenshot(path=str(out/f'after-{label}.png'),full_page=True)
+              page.locator('.gq-disclosures details').nth(1).locator('summary').click()
+              page.locator('.gq-disclosures details').nth(2).locator('summary').click()
+              expanded=overflow(page,viewport['width'])
+
+              handoff=browser.new_page(viewport=viewport)
+              handoff.goto(CAND,wait_until='domcontentloaded',timeout=45000)
+              handoff.locator('a[data-atlas-surface="offres"][data-atlas-target="roadmap"]').click()
+              handoff.wait_for_url('**/parcours-usa.html',timeout=15000)
+              assert handoff.locator('#routeForm').count()==1
+              handoff_overflow=overflow(handoff,viewport['width']); handoff.close()
+
+              reduced=browser.new_page(viewport=viewport,reduced_motion='reduce')
+              reduced.goto(CAND,wait_until='domcontentloaded',timeout=45000); reduced.wait_for_timeout(200)
+              d=reduced.locator('.gq-cover').evaluate('el=>getComputedStyle(el).transitionDuration')
+              assert d in ('0s','0.00001s','0.01ms','1e-05s'),d
+              reduced.close()
+              assert not errors,errors
+              info={'status':r.status,'overflow':g,'expandedOverflow':expanded,'shell':shell,'nav':nav_info,'cover':cover_state,
+                    'events':events,'roadmapHandoff':True,'handoffOverflow':handoff_overflow,'reducedMotion':d,
+                    'h1':page.locator('h1').inner_text(),'height':page.evaluate('document.documentElement.scrollHeight')}
+              page.close(); return info
+
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True)
+              for label,vp in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+                  report['before'][label]=capture_live(browser,label,vp)
+                  report['after'][label]=candidate(browser,label,vp)
+              browser.close()
+
+          Path('qa-artifacts/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/qa.py
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5q0-guide-before-after
+          path: qa-artifacts
+          if-no-files-found: error
