@@ -1,0 +1,46 @@
+name: Atlas P6-E3 live smoke
+
+on:
+  push:
+    branches:
+      - ops/atlas-p6e3-live-smoke-20260921
+    paths:
+      - .github/workflows/atlas-p6e3-live-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify exact public V15 contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p smoke-evidence
+          base='https://atlas-exit-delivery.onrender.com'
+          curl -fsS --retry 3 --retry-delay 2 "$base/health" -o smoke-evidence/health.json
+          jq -e '.ok == true and .freeGuideConfigured == true and .freeGuideEdition == "15.0" and .freeGuideSha256 == "a91df6b806c65cba8a2c868b996155e29429b7494815368c768aa676b21781dc"' smoke-evidence/health.json >/dev/null
+          curl -fsS --retry 3 --retry-delay 2 -D smoke-evidence/free-guide.headers "$base/free-guide/usa" -o smoke-evidence/free-guide.pdf
+          test "$(stat -c%s smoke-evidence/free-guide.pdf)" = '8012032'
+          test "$(sha256sum smoke-evidence/free-guide.pdf | awk '{print $1}')" = 'a91df6b806c65cba8a2c868b996155e29429b7494815368c768aa676b21781dc'
+          tr -d '\r' < smoke-evidence/free-guide.headers > smoke-evidence/free-guide.headers.clean
+          grep -qi '^content-type: application/pdf' smoke-evidence/free-guide.headers.clean
+          grep -qi '^content-disposition: attachment; filename="Atlas-Exit-Guide-Etats-Unis-Edition-15.0.pdf"' smoke-evidence/free-guide.headers.clean
+          grep -qi '^cache-control: private, no-store, max-age=0' smoke-evidence/free-guide.headers.clean
+          grep -qi '^x-content-type-options: nosniff' smoke-evidence/free-guide.headers.clean
+          grep -qi '^x-robots-tag: noindex, noarchive' smoke-evidence/free-guide.headers.clean
+          code=$(curl -sS -o smoke-evidence/invalid-paid.txt -w '%{http_code}' "$base/download?order=historical-invalid&sig=0000000000000000000000000000000000000000000000000000000000000000")
+          test "$code" = '403'
+          printf '%s\n' "$code" > smoke-evidence/invalid-paid.status
+          sha256sum smoke-evidence/free-guide.pdf > smoke-evidence/free-guide.sha256
+          stat -c%s smoke-evidence/free-guide.pdf > smoke-evidence/free-guide.bytes
+
+      - name: Upload smoke evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p6e3-live-smoke-${{ github.run_id }}
+          path: smoke-evidence/
+          retention-days: 7
+          if-no-files-found: error
