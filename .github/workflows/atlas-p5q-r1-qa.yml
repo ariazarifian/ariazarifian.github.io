@@ -208,7 +208,7 @@ jobs:
           with sync_playwright() as pw:
               b=pw.chromium.launch(headless=True)
               for label,vp in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
-                  report['views'][label]={'accompagnement':accompagnement(b,label,vp),'roadmap':roadmap(b,label,vp)}
+                  report['views'][label]={'accompagnement':accompaniment(b,label,vp),'roadmap':roadmap(b,label,vp)}
               b.close()
           report['status']='PASS'
           (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
