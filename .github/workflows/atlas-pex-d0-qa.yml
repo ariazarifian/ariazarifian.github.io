@@ -1,0 +1,128 @@
+name: Atlas PEX-D0 candidate QA
+on:
+  push:
+    branches: [ops/atlas-pex-d0-thailand-evidence-20260921]
+    paths:
+      - atlas-exit/index.html
+      - atlas-exit/country-evidence.js
+      - .github/workflows/atlas-pex-d0-qa.yml
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Static contract checks
+        run: |
+          node --check atlas-exit/country-evidence.js
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('atlas-exit/index.html').read_text()
+          assert p.count('country-evidence.js?v=pex-d0-1') == 1
+          assert p.index('country-evidence.js?v=pex-d0-1') < p.index('script.js?v=fiscal3')
+          js=Path('atlas-exit/country-evidence.js').read_text()
+          for key in ['tax_residency','pit','cit_business','consumption_tax','cost_context','residence_visa','healthcare','safety_context']:
+              assert key in js
+          assert "evidenceState:'HOLD'" in js
+          assert 'internalCoverage' in js
+          print('Static contract PASS')
+          PY
+      - name: Install browser
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium
+      - name: Real-browser Explorer regression
+        run: |
+          mkdir -p /tmp/atlas-pex-d0-artifacts
+          python3 -m http.server 4173 --directory atlas-exit >/tmp/atlas-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          cat >/tmp/pex-d0-qa.cjs <<'NODE'
+          const { chromium } = require('playwright');
+          const fs = require('fs');
+          const results = {};
+          const badText = /À documenter|pas encore documenté|pas encore documentés/i;
+          async function run(viewport, name, compare=false){
+            const browser = await chromium.launch({headless:true});
+            const context = await browser.newContext({viewport, reducedMotion:'reduce'});
+            const page = await context.newPage();
+            const errors=[];
+            page.on('pageerror',e=>errors.push('pageerror: '+e.message));
+            page.on('console',m=>{if(m.type()==='error' && !/umami|ERR_FAILED|Failed to load resource/i.test(m.text())) errors.push('console: '+m.text())});
+            await page.route('https://cloud.umami.is/**',r=>r.abort());
+            await page.route('https://gateway.umami.is/**',r=>r.abort());
+            await page.goto('http://127.0.0.1:4173/index.html',{waitUntil:'domcontentloaded'});
+            await page.waitForFunction(()=>document.querySelector('#resultCount') && !document.querySelector('#resultCount').textContent.includes('Chargement'),null,{timeout:15000});
+            const geometry = await page.locator('#countries path').count();
+            if(geometry < 170) throw new Error('Map geometry regression: '+geometry);
+            await page.locator('#countrySearch').fill('Thaïlande');
+            const row=page.locator('[data-country="THA"]');
+            await row.waitFor({state:'visible'});
+            await row.click();
+            await page.locator('[data-country-evidence="THA"]').waitFor({state:'visible'});
+            const contract=await page.evaluate(()=>({
+              core:window.ATLAS_COUNTRY_EVIDENCE?.coreFields,
+              coverage:window.ATLAS_COUNTRY_EVIDENCE?.internalCoverage('THA'),
+              hold:window.ATLAS_COUNTRY_EVIDENCE?.getField('CHE','healthcare')?.evidenceState,
+              scrollWidth:document.documentElement.scrollWidth,
+              innerWidth:innerWidth,
+              inspector:(()=>{const r=document.querySelector('#inspector').getBoundingClientRect();return{left:r.left,right:r.right,width:r.width}})()
+            }));
+            if(contract.core?.length!==8 || contract.coverage?.readyKeys?.length!==8 || contract.coverage?.holdKeys?.length!==0) throw new Error('Normalized core contract failed: '+JSON.stringify(contract));
+            if(contract.hold!=='HOLD') throw new Error('Unknown path is not HOLD');
+            if(contract.scrollWidth > contract.innerWidth+1) throw new Error('Horizontal overflow: '+JSON.stringify(contract));
+            if(contract.inspector.left < -1 || contract.inspector.right > contract.innerWidth+1) throw new Error('Inspector outside viewport: '+JSON.stringify(contract.inspector));
+            const inspectorText=await page.locator('#inspectorContent').innerText();
+            for(const required of ['5–35 %','20 %','7 %','180 jours ou plus / an','30 jours · tourisme','30 464 THB','22 282 THB','Selon le statut','Contexte géographique']){
+              if(!inspectorText.includes(required)) throw new Error('Missing Thailand evidence: '+required);
+            }
+            if(badText.test(inspectorText)) throw new Error('Routine missing-data placeholder remains in Thailand inspector: '+inspectorText.match(badText)[0]);
+            const details=page.locator('[data-country-evidence-sources="THA"]');
+            if(await details.locator('.country-evidence__item').count()!==8) throw new Error('Expected 8 field evidence records');
+            await details.locator('summary').click();
+            if(await details.locator('a.detail-source').count()!==8) throw new Error('Expected 8 evidence source links');
+            if((await details.innerText()).match(/8\/8|score de complétude|completeness score/i)) throw new Error('Synthetic completeness surfaced');
+            if(compare){
+              await page.locator('[data-save="THA"]').click();
+              await page.locator('[data-dismiss]').click();
+              await page.locator('#countrySearch').fill('Portugal');
+              const prt=page.locator('[data-country="PRT"]'); await prt.waitFor({state:'visible'}); await prt.click();
+              await page.locator('[data-save="PRT"]').click();
+              await page.locator('[data-dismiss]').click();
+              await page.locator('#openCompare').click();
+              await page.locator('#compareDialog').waitFor({state:'visible'});
+              const compareText=await page.locator('#compareTable').innerText();
+              if(!compareText.includes('Thaïlande') || !compareText.includes('Portugal') || !compareText.includes('5–35 %') || !compareText.includes('20 %') || !compareText.includes('7 %')) throw new Error('Comparator regression / Thailand tax bridge missing');
+              await page.locator('#compareDialog [data-close]').click();
+              await page.locator('#countrySearch').fill('');
+              await page.locator('[data-region="Asia"]').click();
+              const count=await page.locator('#resultCount').innerText(); if(!/destination/.test(count)) throw new Error('Region filter regression');
+              await page.locator('#resetFilters').click();
+            }
+            await page.screenshot({path:`/tmp/atlas-pex-d0-artifacts/${name}-thailand-inspector.png`,fullPage:true});
+            if(errors.length) throw new Error(errors.join('\n'));
+            results[name]={geometry,contract,sourceItems:8,compare};
+            await browser.close();
+          }
+          (async()=>{
+            await run({width:1440,height:1000},'desktop',true);
+            await run({width:390,height:844},'mobile',false);
+            fs.writeFileSync('/tmp/atlas-pex-d0-artifacts/report.json',JSON.stringify(results,null,2));
+            console.log(JSON.stringify(results,null,2));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+          node /tmp/pex-d0-qa.cjs
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-pex-d0-thailand-evidence-qa
+          path: /tmp/atlas-pex-d0-artifacts
+          if-no-files-found: error
