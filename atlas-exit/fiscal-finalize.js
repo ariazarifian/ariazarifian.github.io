@@ -68,6 +68,22 @@
   };
   for(const [id,row] of Object.entries(contextual)) merge(id,{...row,checked:'Contexte Atlas · 2026'});
 
+  // PEX-D1B legacy reconciliation: the old Australia scalar was an OECD 2025
+  // combined top-rate context (47%). DEX-12 accepted the 2026–27 resident federal
+  // schedule with a 45% top marginal band. Explorer's tax layer is explicitly a
+  // barème repère, not a full-liability calculator, so the visible scalar now uses
+  // the current resident schedule while Medicare levy/offsets stay explicit caveats.
+  const australiaResidentPit={
+    tax:45,
+    taxYear:'2026–27',
+    scope:'Barème résident fédéral · Medicare levy distincte',
+    note:'Barème résident effectif depuis le 1er juillet 2026 : seuil 18 200 AUD, puis 15 %, 30 %, 37 % et 45 %. Medicare levy et offsets sont distincts ; ce repère n’est pas une charge fiscale totale.',
+    src:null,
+    taxKind:'current-reference'
+  };
+  if(window.ATLAS_TAX?.AUS) Object.assign(window.ATLAS_TAX.AUS,australiaResidentPit);
+  if(window.ATLAS_CATALOG?.AUS) Object.assign(window.ATLAS_CATALOG.AUS,australiaResidentPit);
+
   // Lightweight runtime audit. It runs after script.js exposes AtlasExplorer and
   // records actual visible gaps; it does not alter any fiscal data.
   function audit(){
@@ -111,5 +127,5 @@
   }
   loadCountryEvidence();
 
-  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d1b-1'};
+  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d1b-1',australiaLegacyPitReconciled:true};
 })();
