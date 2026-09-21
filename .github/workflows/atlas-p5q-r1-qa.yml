@@ -1,0 +1,225 @@
+name: ATLAS P5Q-R1 Funnel Truth QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5q-r1-funnel-truth-20260922
+
+permissions:
+  contents: read
+
+jobs:
+  p5q-r1-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact Product scope and static contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=70db65deb4526b1d685530b22a245ff77cbc6220
+          PRODUCT=ad334891a22d927d5a5e354670434cb8bb33cd61
+          git diff --name-only "$BASE" "$PRODUCT" | sort > /tmp/product-changed.txt
+          printf '%s\n' atlas-exit/accompagnement.html atlas-exit/parcours-usa.html | sort > /tmp/product-expected.txt
+          diff -u /tmp/product-expected.txt /tmp/product-changed.txt
+
+          test "$(grep -Fc '<link rel="canonical" href="https://atlas-expat.fr/parcours-usa.html">' atlas-exit/parcours-usa.html)" -eq 1
+          test "$(grep -Fc '<link rel="canonical" href="https://atlas-expat.fr/accompagnement.html">' atlas-exit/accompagnement.html)" -eq 1
+          test "$(grep -o 'rel="canonical"' atlas-exit/parcours-usa.html | wc -l)" -eq 1
+          test "$(grep -o 'rel="canonical"' atlas-exit/accompagnement.html | wc -l)" -eq 1
+
+          test "$(grep -Fc '<script src="atlas-events.js?v=1" defer></script>' atlas-exit/accompagnement.html)" -eq 1
+          test "$(grep -o 'data-atlas-event="free_funnel_cta"' atlas-exit/accompagnement.html | wc -l)" -eq 4
+          test "$(grep -o 'data-atlas-target="roadmap"' atlas-exit/accompagnement.html | wc -l)" -eq 2
+          test "$(grep -o 'data-atlas-target="guide"' atlas-exit/accompagnement.html | wc -l)" -eq 2
+          test "$(grep -o 'data-atlas-surface="accompagnement"' atlas-exit/accompagnement.html | wc -l)" -eq 4
+          ! grep -q 'href="start.html"' atlas-exit/accompagnement.html
+          grep -q 'id="programmeContact" type="button" disabled>Ouverture à venir</button>' atlas-exit/accompagnement.html
+
+          test "$(git hash-object atlas-exit/atlas-events.js)" = "acdc41734734c21bddf71f0e05047265274a74ec"
+          test "$(git hash-object atlas-exit/programmes.js)" = "9e228ee55eb967eb890d6c4efa10ec7918a5553d"
+          test "$(git hash-object atlas-exit/parcours-usa.js)" = "c28941375f4c2b87183e816d65bb3ae66d4c15e3"
+          test "$(git hash-object atlas-exit/atlas-ui.css)" = "a4af3e0236c6622a5488fa7836bca100922f382f"
+          grep -q 'https://atlas-exit-delivery.onrender.com/free-guide/usa' atlas-exit/parcours-usa.html
+          grep -q 'data-atlas-event="guide_download_click"' atlas-exit/parcours-usa.html
+          test "$(grep -o 'data-card-step=' atlas-exit/parcours-usa.html | wc -l)" -eq 8
+          test "$(grep -o 'data-step=' atlas-exit/parcours-usa.html | wc -l)" -eq 8
+
+      - name: Verify current V15 delivery contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -D /tmp/v15.headers -o /tmp/v15.pdf https://atlas-exit-delivery.onrender.com/free-guide/usa
+          test "$(sha256sum /tmp/v15.pdf | awk '{print $1}')" = "a91df6b806c65cba8a2c868b996155e29429b7494815368c768aa676b21781dc"
+          grep -iEq '^content-type: *application/pdf' /tmp/v15.headers
+          grep -iEq '^content-disposition: *attachment; *filename="Atlas-Exit-Guide-Etats-Unis-Edition-15.0.pdf"' /tmp/v15.headers
+          grep -iEq '^x-content-type-options: *nosniff' /tmp/v15.headers
+          grep -iEq '^x-robots-tag: *noindex, *noarchive' /tmp/v15.headers
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Desktop mobile browser, CTA, modal and Roadmap lifecycle gate
+        shell: bash
+        run: |
+          mkdir -p qa-artifacts
+          python -m http.server 8765 --directory atlas-exit >/tmp/p5q-r1-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          cat > /tmp/qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          ROOT='http://127.0.0.1:8765'
+          out=Path('qa-artifacts')
+          report={'product_commit':'ad334891a22d927d5a5e354670434cb8bb33cd61','base':'70db65deb4526b1d685530b22a245ff77cbc6220','views':{}}
+          init="""
+          window.__atlasEvents=[];
+          window.ATLAS_EVENT_COLLECTOR=(name,payload)=>{window.__atlasEvents.push({name,payload});return true;};
+          document.addEventListener('click', e => {
+            const a=e.target.closest && e.target.closest('a[data-atlas-event="free_funnel_cta"]');
+            if(a) e.preventDefault();
+          });
+          """
+
+          def stub(page):
+              page.route('https://cloud.umami.is/**',lambda r:r.fulfill(status=200,content_type='application/javascript',body=''))
+              page.route('https://gateway.umami.is/**',lambda r:r.fulfill(status=204,body=''))
+
+          def overflow(page,w):
+              g=page.evaluate("() => ({doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,vw:innerWidth})")
+              assert g['doc']<=w+1 and g['body']<=w+1,g
+              return g
+
+          def check_shell(page,label,vp):
+              page.evaluate('document.fonts.ready'); page.wait_for_timeout(250)
+              assert page.evaluate("document.fonts.check('16px Manrope')")
+              resources=page.evaluate("performance.getEntriesByType('resource').map(e=>e.name)")
+              assert any('Manrope-Variable.ttf' in x for x in resources),resources
+              assert not any('fonts.googleapis.com' in x or 'fonts.gstatic.com' in x for x in resources),resources
+              nav=page.locator('.atlas-shell__nav a'); assert nav.count()==4
+              if label=='mobile':
+                  for i in range(4):
+                      a=nav.nth(i); box=a.bounding_box(); fs=a.evaluate('e=>parseFloat(getComputedStyle(e).fontSize)')
+                      assert box and box['height']>=42 and fs>=13,(box,fs)
+              return overflow(page,vp['width'])
+
+          def accompaniment(browser,label,vp):
+              p=browser.new_page(viewport=vp,reduced_motion='no-preference'); stub(p); p.add_init_script(init)
+              errs=[]; cons=[]
+              p.on('pageerror',lambda e:errs.append(str(e)))
+              p.on('console',lambda m:cons.append(m.text) if m.type=='error' else None)
+              r=p.goto(ROOT+'/accompagnement.html',wait_until='domcontentloaded',timeout=45000); assert r and r.ok
+              geom=check_shell(p,label,vp)
+              assert p.locator('link[rel="canonical"]').count()==1
+              assert p.locator('link[rel="canonical"]').get_attribute('href')=='https://atlas-expat.fr/accompagnement.html'
+              assert p.evaluate('typeof window.AtlasEvents.track')=='function'
+              ctas=p.locator('[data-atlas-event="free_funnel_cta"]'); assert ctas.count()==4
+              for i in range(4):
+                  ctas.nth(i).click(); p.wait_for_timeout(40)
+              events=p.evaluate('window.__atlasEvents')
+              assert [e['name'] for e in events]==['free_funnel_cta']*4,events
+              assert [e['payload']['target'] for e in events]==['roadmap','guide','roadmap','guide'],events
+              assert all(e['payload']['surface']=='accompagnement' for e in events),events
+              assert p.url.endswith('/accompagnement.html'),p.url
+              assert p.locator('a[href="start.html"]').count()==0
+              assert p.locator('#programmeContact').get_attribute('href') is None
+              assert p.locator('#programmeContact').is_disabled()
+              assert p.locator('[data-program]').count()==3
+              modal=[]
+              for key,title in [('guided','Projet USA'),('coordination','Coordination'),('signature','Signature')]:
+                  b=p.locator(f'[data-program="{key}"]'); b.scroll_into_view_if_needed(); b.click(); p.wait_for_timeout(50)
+                  d=p.locator('#programmeDialog'); assert d.evaluate('x=>x.open')
+                  assert p.locator('#programmeTitle').inner_text()==title
+                  assert p.locator('#programmeContact').is_disabled()
+                  overflow(p,vp['width'])
+                  p.screenshot(path=str(out/f'accompagnement-{label}-{key}.png'),full_page=False)
+                  p.locator('#closeProgramme').click(); assert not d.evaluate('x=>x.open')
+                  b.click(); p.keyboard.press('Escape'); p.wait_for_timeout(30); assert not d.evaluate('x=>x.open')
+                  modal.append(key)
+              p.screenshot(path=str(out/f'accompagnement-{label}.png'),full_page=True)
+              assert not errs,errs
+              assert not cons,cons
+              p.close()
+              return {'status':r.status,'overflow':geom,'events':events,'modals':modal,'manualIntakeDisabled':True}
+
+          def roadmap(browser,label,vp):
+              p=browser.new_page(viewport=vp,reduced_motion='no-preference'); stub(p)
+              p.add_init_script("window.__atlasEvents=[]; window.ATLAS_EVENT_COLLECTOR=(name,payload)=>{window.__atlasEvents.push({name,payload});return true;};")
+              errs=[]; cons=[]
+              p.on('pageerror',lambda e:errs.append(str(e)))
+              p.on('console',lambda m:cons.append(m.text) if m.type=='error' else None)
+              r=p.goto(ROOT+'/parcours-usa.html',wait_until='domcontentloaded',timeout=45000); assert r and r.ok
+              geom=check_shell(p,label,vp)
+              assert p.locator('link[rel="canonical"]').count()==1
+              assert p.locator('link[rel="canonical"]').get_attribute('href')=='https://atlas-expat.fr/parcours-usa.html'
+              assert p.locator('[data-step]').count()==8 and p.locator('[data-card-step]').count()==8
+              assert p.locator('#doneCount').inner_text()=='0'
+              assert p.locator('#routeSummary').is_hidden()
+              assert p.locator('#resumeRoute').is_hidden()
+              assert p.evaluate("localStorage.getItem('atlas_usa_route_v3')") is None
+              assert p.evaluate("localStorage.getItem('atlas_usa_qep_v1')") is None
+
+              p.select_option('#profile','business'); p.select_option('#horizon','3-6'); p.fill('#city','Austin'); p.select_option('#priority','tax')
+              p.locator('#routeForm button[type="submit"]').click(); p.wait_for_timeout(160)
+              events=p.evaluate('window.__atlasEvents')
+              names=[e['name'] for e in events]
+              assert names==['route_started','qualified_project','roadmap_saved'],events
+              q=[e for e in events if e['name']=='qualified_project']
+              assert len(q)==1 and q[0]['payload']=={'origin':'FR','destination':'US','horizon_bucket':'3-6','route_version':'usa-v3','meaningful_action':'route_saved'},q
+              for i in range(3): p.locator('[data-step]').nth(i).check()
+              assert p.locator('#doneCount').inner_text()=='3'
+              assert [e['name'] for e in p.evaluate('window.__atlasEvents')]==names
+              p.reload(wait_until='domcontentloaded'); p.wait_for_timeout(120)
+              assert p.locator('#doneCount').inner_text()=='3'
+              assert p.locator('#resumeRoute').inner_text()=='Reprendre à l’étape 4 →'
+              assert [e['name'] for e in p.evaluate('window.__atlasEvents')]==['roadmap_returned']
+              p.locator('#resumeRoute').click(); p.wait_for_timeout(50)
+              assert p.evaluate("document.activeElement && document.activeElement.getAttribute('data-step')")=='landing'
+              for i in range(3,8): p.locator('[data-step]').nth(i).check()
+              assert p.locator('#doneCount').inner_text()=='8'
+              assert [e['name'] for e in p.evaluate('window.__atlasEvents')]==['roadmap_returned','route_completed']
+              p.reload(wait_until='domcontentloaded'); p.wait_for_timeout(100)
+              assert p.locator('#doneCount').inner_text()=='8'
+              assert p.locator('#resumeRoute').inner_text()=='Revoir ma roadmap →'
+              assert [e['name'] for e in p.evaluate('window.__atlasEvents')]==['roadmap_returned']
+              p.locator('#resetRoute').click()
+              assert p.locator('#doneCount').inner_text()=='0'
+              assert p.evaluate("localStorage.getItem('atlas_usa_route_v3')") is None
+              assert p.evaluate("localStorage.getItem('atlas_usa_qep_v1')") is None
+              p.select_option('#horizon','6-12'); p.locator('#routeForm button[type="submit"]').click(); p.wait_for_timeout(120)
+              post=p.evaluate('window.__atlasEvents')
+              assert len([e for e in post if e['name']=='qualified_project'])==1,post
+              assert [e for e in post if e['name']=='qualified_project'][0]['payload']['horizon_bucket']=='6-12'
+              p.screenshot(path=str(out/f'roadmap-{label}.png'),full_page=True)
+              assert not errs,errs
+              assert not cons,cons
+              p.close()
+              return {'status':r.status,'overflow':geom,'qepExactlyOnce':True,'resumeAt4':'landing','complete8of8':True,'resetClearsRouteAndQep':True,'newRouteAfterResetQep':True}
+
+          with sync_playwright() as pw:
+              b=pw.chromium.launch(headless=True)
+              for label,vp in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+                  report['views'][label]={'accompagnement':accompagnement(b,label,vp),'roadmap':roadmap(b,label,vp)}
+              b.close()
+          report['status']='PASS'
+          (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/qa.py
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5q-r1-funnel-truth-qa
+          path: qa-artifacts
+          if-no-files-found: error
