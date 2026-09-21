@@ -1,0 +1,203 @@
+name: ATLAS PEX-D0 Thailand Evidence QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-pex-d0-qa-20260921
+
+permissions:
+  contents: read
+
+jobs:
+  explorer-evidence-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify bounded candidate and evidence contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=8eb016606487942d73a7eb59860e44688aba6440
+          CANDIDATE=7a4c3fc99af9a29d2386f9b319e2dc9b421a495c
+          test "$(git hash-object atlas-exit/index.html)" = "8b6ceb5f3688cc651b2dfad0f88d6bfb25145f96"
+          test "$(git hash-object atlas-exit/country-evidence.js)" = "15681cefbab5f78a3935b0cb97e19ddbe0ba0164"
+          git diff --name-only "$BASE" "$CANDIDATE" | sort > /tmp/changed.txt
+          printf '%s\n' atlas-exit/country-evidence.js atlas-exit/index.html | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+          grep -q 'country-evidence.js?v=pex-d0-1' atlas-exit/index.html
+          python - <<'PY'
+          from pathlib import Path
+          h=Path('atlas-exit/index.html').read_text()
+          assert h.index('country-evidence.js?v=pex-d0-1') < h.index('script.js?v=fiscal3')
+          s=Path('atlas-exit/country-evidence.js').read_text()
+          required=['tax_residency','pit','cit_business','consumption_tax','cost_context','residence_visa','healthcare','safety_context']
+          for k in required:
+              assert k in s, k
+          assert 'score de complétude' not in s.lower()
+          assert "state:'READY'" in s
+          assert '180 jours ou plus' in s
+          assert '5–35 %' in s
+          assert "cit:'20 %'" in s
+          assert "vat:'7 %'" in s
+          PY
+          node --check atlas-exit/country-evidence.js
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run real-browser desktop and mobile regression
+        shell: bash
+        run: |
+          python -m http.server 8765 --directory atlas-exit >/tmp/pex-d0-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          cat > /tmp/qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          URL='http://127.0.0.1:8765/index.html'
+          out=Path('qa-artifacts'); out.mkdir(exist_ok=True)
+          required=['tax_residency','pit','cit_business','consumption_tax','cost_context','residence_visa','healthcare','safety_context']
+          report={'candidate':'7a4c3fc99af9a29d2386f9b319e2dc9b421a495c','base':'8eb016606487942d73a7eb59860e44688aba6440','desktop':{},'mobile':{}}
+
+          def overflow(page,w):
+              g=page.evaluate("""() => ({doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,vw:innerWidth})""")
+              assert g['doc'] <= w+1 and g['body'] <= w+1, g
+              return g
+
+          def wait_ready(page):
+              page.goto(URL,wait_until='domcontentloaded',timeout=45000)
+              page.wait_for_function("document.querySelector('#resultCount') && !document.querySelector('#resultCount').textContent.includes('Chargement')",timeout=45000)
+              page.evaluate('document.fonts.ready')
+              page.wait_for_timeout(350)
+
+          def select_thailand(page):
+              search=page.locator('#countrySearch')
+              search.fill('Thaïlande')
+              row=page.locator('[data-country="THA"]')
+              row.wait_for(state='visible',timeout=10000)
+              row.click()
+              page.locator('[data-country-evidence="THA"]').wait_for(state='attached',timeout=10000)
+              page.wait_for_timeout(150)
+
+          def assert_evidence(page):
+              pack=page.evaluate("""() => {
+                const e=window.ATLAS_COUNTRY_EVIDENCE;
+                const t=e && e.countries && e.countries.THA;
+                return {schema:e?.schemaVersion,required:e?.requiredFields,wave:t?.waveComplete,missing:t?.missingFields,
+                  states:t?Object.fromEntries(Object.entries(t.fields).map(([k,v])=>[k,{state:v.state,owner:v.sourceOwner,url:v.sourceUrl,verified:v.verifiedOn,caveat:v.caveat,cadence:v.freshnessCadence}])):{}};
+              }""")
+              assert pack['schema']=='pex-d0-1',pack
+              assert pack['required']==required,pack
+              assert pack['wave'] is True and pack['missing']==[],pack
+              assert set(pack['states'])==set(required),pack
+              for k,v in pack['states'].items():
+                  assert v['state']=='READY',(k,v)
+                  assert v['owner'] and v['url'].startswith('https://') and v['verified']=='2026-09-21',(k,v)
+                  assert v['caveat'] and v['cadence'],(k,v)
+
+              sections=page.locator('[data-country-evidence="THA"] [data-evidence-field]')
+              assert sections.count()==8,sections.count()
+              got=[]
+              for i in range(sections.count()):
+                  el=sections.nth(i)
+                  key=el.get_attribute('data-evidence-field'); text=el.inner_text().lower(); got.append(key)
+                  assert 'non documenté' not in text and 'à documenter' not in text,(key,text)
+                  assert 'preuve, fraîcheur et limites' in text,(key,text)
+              assert got==required,got
+              body=page.locator('[data-country-evidence="THA"]').inner_text()
+              for snippet in ['180 jours ou plus','5–35 %','20 %','7 %','30 464 THB','30 jours sans visa','Couverture selon le statut','pas de score unique']:
+                  assert snippet in body,snippet
+              tax=page.locator('.tax-stack').inner_text()
+              assert '5–35 %' in tax and '20 %' in tax and '7 %' in tax,tax
+              assert 'À documenter' not in tax and 'Non documenté' not in tax,tax
+              alltxt=page.locator('#inspectorContent').inner_text().lower()
+              assert 'référence ancienne publiée' not in alltxt
+              return {'keys':got,'taxStack':tax,'evidenceChars':len(body)}
+
+          def comparator_regression(page):
+              page.locator('[data-save="THA"]').click()
+              assert page.locator('#savedCount').inner_text()=='1'
+              page.locator('[data-dismiss]').click()
+              page.locator('#countrySearch').fill('Portugal')
+              pt=page.locator('[data-country="PRT"]'); pt.wait_for(state='visible'); pt.click()
+              page.locator('[data-save="PRT"]').click()
+              assert page.locator('#savedCount').inner_text()=='2'
+              page.locator('#openCompare').click()
+              page.locator('#compareDialog').wait_for(state='visible')
+              txt=page.locator('#compareTable').inner_text()
+              assert 'Thaïlande' in txt and 'Portugal' in txt,txt
+              assert '5–35 %' in txt and '20 %' in txt and '7 %' in txt,txt
+              page.locator('#compareDialog [data-close]').click()
+              return True
+
+          def common(browser,label,vp):
+              p=browser.new_page(viewport=vp,reduced_motion='no-preference')
+              errs=[]
+              p.on('pageerror',lambda e: errs.append(str(e)))
+              wait_ready(p)
+              g=overflow(p,vp['width'])
+              assert p.locator('#worldMap').is_visible()
+              assert p.locator('.atlas-shell__nav a').count()==4
+              assert p.locator('.country-shape').count()>150
+              p.screenshot(path=str(out/f'{label}-explorer.png'))
+              select_thailand(p)
+              ev=assert_evidence(p)
+              assert not p.locator('#inspector').get_attribute('hidden')
+              p.screenshot(path=str(out/f'{label}-thailand-top.png'))
+              first=p.locator('[data-country-evidence="THA"] [data-evidence-field]').first
+              first.scroll_into_view_if_needed(); p.wait_for_timeout(100)
+              p.screenshot(path=str(out/f'{label}-thailand-evidence.png'))
+              assert not errs,errs
+              return p,g,ev
+
+          with sync_playwright() as pw:
+              browser=pw.chromium.launch(headless=True)
+              p,g,ev=common(browser,'desktop',{'width':1440,'height':1000})
+              comp=comparator_regression(p)
+              p.locator('[data-map-scope="usa"]').click(); p.wait_for_timeout(250)
+              assert '51' in p.locator('#resultCount').inner_text(),p.locator('#resultCount').inner_text()
+              p.locator('[data-world-return]').click(); p.wait_for_timeout(200)
+              report['desktop']={'overflow':g,'evidence':ev,'comparator':comp,'usaCount':'51','pageErrors':[]}
+              p.close()
+
+              p,g,ev=common(browser,'mobile',{'width':390,'height':844})
+              nav=p.locator('.atlas-shell__nav a')
+              for i in range(nav.count()):
+                  box=nav.nth(i).bounding_box(); fs=nav.nth(i).evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')
+                  assert box and box['x']>=-1 and box['x']+box['width']<=391,(i,box)
+                  assert box['height']>=42 and fs>=13,(i,box,fs)
+              p.locator('[data-dismiss]').click()
+              p.locator('#mobileFilters').click(); p.wait_for_timeout(350)
+              sb=p.locator('#sidebar').bounding_box()
+              assert sb and sb['x']>=-1 and sb['x']+sb['width']<=391,sb
+              report['mobile']={'overflow':g,'evidence':ev,'drawer':sb,'pageErrors':[]}
+              p.close()
+
+              reduced=browser.new_page(viewport={'width':390,'height':844},reduced_motion='reduce')
+              wait_ready(reduced)
+              d=reduced.locator('.country-row').first.evaluate('el=>getComputedStyle(el).transitionDuration')
+              assert d in ('0s','0.00001s','0.01ms','1e-05s'),d
+              report['mobile']['reducedMotion']=d
+              reduced.close(); browser.close()
+
+          Path('qa-artifacts/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/qa.py
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-pex-d0-thailand-evidence-qa
+          path: qa-artifacts
+          if-no-files-found: error
