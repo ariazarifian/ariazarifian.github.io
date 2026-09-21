@@ -1,0 +1,39 @@
+/* PEX-D0 — evidence rows inside the accepted Explorer inspector.
+   Shared shell/tokens remain owned by atlas-ui.css / atlas-ui-explorer.css. */
+.atlas-evidence{margin-top:14px}
+.atlas-evidence>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:46px;padding:13px 0;border-top:1px solid rgba(200,218,217,.12);color:#d5dfdc;font-size:12px;font-weight:700;letter-spacing:-.01em;cursor:pointer;list-style:none}
+.atlas-evidence>summary::-webkit-details-marker{display:none}
+.atlas-evidence>summary::after{content:"+";color:#d6c19b;font-size:16px;font-weight:500;transition:transform var(--atlas-fast) var(--atlas-ease)}
+.atlas-evidence[open]>summary::after{transform:rotate(45deg)}
+.atlas-evidence__section{padding:3px 0 9px}
+.atlas-evidence__intro{padding:8px 0 17px}
+.atlas-evidence__intro .eyebrow{display:block;margin-bottom:7px;color:#79aa9e;font-size:9px}
+.atlas-evidence__intro p{margin:0;color:#9cabad;font-size:11px;line-height:1.6}
+.atlas-evidence__group{padding:2px 0 14px}
+.atlas-evidence__group h3{margin:0;padding:0 0 8px;border:0;color:#768d90;font:750 9px/1.4 var(--atlas-font);letter-spacing:.115em;text-transform:uppercase}
+.atlas-evidence__row{padding:13px 0 14px;border-top:1px solid rgba(200,218,217,.1)}
+.atlas-evidence__row-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:5px}
+.atlas-evidence__row-head>span{color:#aab9b9;font-size:10px;font-weight:650}
+.atlas-evidence__row-head small{display:inline-flex;align-items:center;gap:6px;color:#8ca19d;font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.atlas-evidence__row-head small::before{content:"";width:6px;height:6px;border-radius:50%;background:#79aa9e;box-shadow:0 0 0 3px rgba(121,170,158,.09)}
+.atlas-evidence__row[data-evidence-state="WATCH"] .atlas-evidence__row-head small{color:#d1b77e}
+.atlas-evidence__row[data-evidence-state="WATCH"] .atlas-evidence__row-head small::before{background:#c6a567}
+.atlas-evidence__row[data-evidence-state="HOLD"] .atlas-evidence__row-head small{color:#ad9797}
+.atlas-evidence__row[data-evidence-state="HOLD"] .atlas-evidence__row-head small::before{background:#9e7777}
+.atlas-evidence__row>strong{display:block;color:#edf1ed;font-size:13px;line-height:1.35;font-weight:720;letter-spacing:-.018em}
+.atlas-evidence__row>p{margin:5px 0 0;color:#94a4a6;font-size:10.5px;line-height:1.58}
+.atlas-evidence__source{margin-top:8px}
+.atlas-evidence__source>summary{width:max-content;max-width:100%;color:#c8b58f;font-size:9.5px;font-weight:650;cursor:pointer;list-style:none;border-bottom:1px solid rgba(214,193,155,.24)}
+.atlas-evidence__source>summary::-webkit-details-marker{display:none}
+.atlas-evidence__source>summary::after{content:" ↗"}
+.atlas-evidence__source[open]>summary::after{content:" ↓"}
+.atlas-evidence__source .micro{margin:8px 0 0;color:#829396;font-size:9.5px;line-height:1.55}
+.atlas-evidence__source .detail-source,.atlas-evidence__source-name{display:inline-block;margin-top:8px;color:#cdb88e;font-size:9.5px;line-height:1.5}
+.atlas-evidence__source .detail-source:hover{color:#ead9b6}
+@media(max-width:650px){
+  .atlas-evidence>summary{min-height:48px;font-size:12.5px}
+  .atlas-evidence__row{padding-block:14px 15px}
+  .atlas-evidence__row>strong{font-size:13.5px}
+  .atlas-evidence__row>p{font-size:11px}
+}
+@media(prefers-reduced-motion:reduce){.atlas-evidence>summary::after{transition-duration:.01ms!important}}
