@@ -100,6 +100,36 @@
     const timer=setInterval(()=>{tries++;if(audit()||tries>160)clearInterval(timer);},50);
   }
 
+  // D1B reconciliation for the legacy comparator is kept in this bridge because
+  // comparator rows are owned by the existing Explorer runtime. We identify the
+  // Australia column by country name (the UI displays ISO-2 "AU", not internal
+  // id "AUS") and replace only the overlapping normalized fiscal cells.
+  function reconcileAustraliaComparator(){
+    const core=window.ATLAS_COUNTRY_EVIDENCE;
+    const aus=window.ATLAS_COUNTRY_EVIDENCE_AUSTRALIA?.country;
+    const table=document.querySelector('#compareTable table');
+    if(!core||!aus||!table)return;
+    const headers=[...table.querySelectorAll('thead th')];
+    const ausIndex=headers.findIndex(th=>/Australie/i.test(th.textContent||''));
+    if(ausIndex<1)return;
+    const rowByLabel=label=>[...table.querySelectorAll('tbody tr')].find(tr=>tr.querySelector('td')?.textContent.trim()===label);
+    const cell=label=>rowByLabel(label)?.querySelectorAll('td')?.[ausIndex]||null;
+    const set=(label,html)=>{const target=cell(label);if(target){target.innerHTML=html;target.dataset.atlasNormalized='AUS';}};
+    const sourceHtml=['pit','cit_business','consumption_tax'].map(k=>core.renderSources(aus.fields[k])).join('');
+    set('Revenu','<span class="val">15–45 %</span><small>Résident 2026–27 · seuil 18 200 AUD · Medicare levy et offsets distincts</small>');
+    set('Sociétés','<span class="val">30 % général · 25 % si éligible</span><small>Base-rate entities sous conditions</small>');
+    set('TVA / consommation','<span class="val">10 %</span><small>GST standard · exemptions et règles d’inscription distinctes</small>');
+    set('Taxes particulières','<small>Les périmètres fiscal, Medicare, statut migratoire et GST restent distincts ; aucune addition automatique.</small>');
+    set('Sources',sourceHtml);
+  }
+
+  function bindAustraliaComparator(){
+    const host=document.querySelector('#compareTable');
+    if(!host)return;
+    reconcileAustraliaComparator();
+    new MutationObserver(()=>queueMicrotask(reconcileAustraliaComparator)).observe(host,{childList:true,subtree:true});
+  }
+
   // PEX-D1B: keep the PEX-D1A evidence contract isolated, then load the first
   // additional published country module only after that contract is available.
   function loadAustraliaEvidence(){
@@ -108,6 +138,7 @@
     australia.src='country-evidence-australia.js?v=pex-d1b-1';
     australia.async=false;
     australia.dataset.atlasCountryEvidenceAustralia='runtime';
+    australia.addEventListener('load',()=>{bindAustraliaComparator();reconcileAustraliaComparator();},{once:true});
     document.head.append(australia);
   }
 
@@ -127,5 +158,5 @@
   }
   loadCountryEvidence();
 
-  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d1b-1',australiaLegacyPitReconciled:true};
+  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d1b-1',australiaLegacyPitReconciled:true,australiaComparatorReconciled:true};
 })();
