@@ -1,0 +1,112 @@
+name: Atlas P5DS4 analytics CSP fix QA v2
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds4-analytics-csp-fix-qa-20260921
+    paths:
+      - '.github/workflows/atlas-p5ds4-analytics-csp-fix-qa-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  candidate-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify candidate CSP is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F "connect-src 'self' https://cloud.umami.is https://gateway.umami.is" atlas-exit/accompagnement.html
+
+      - name: Install Playwright Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/p5ds4-csp && cd /tmp/p5ds4-csp
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+
+      - name: Test candidate at Atlas production origin on desktop and mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa-artifacts
+          cat > /tmp/p5ds4-csp/check.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const html = fs.readFileSync(path.resolve(process.env.GITHUB_WORKSPACE, 'atlas-exit/accompagnement.html'), 'utf8');
+          const out = path.resolve(process.env.GITHUB_WORKSPACE, 'qa-artifacts');
+          const browser = await chromium.launch();
+          const failures = [];
+          const results = {};
+          const assert = (cond, msg) => { if (!cond) failures.push(msg); };
+
+          for (const vp of [{key:'desktop',width:1440,height:1000},{key:'mobile',width:390,height:844}]) {
+            const context = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, serviceWorkers: 'block' });
+            const page = await context.newPage();
+            const consoleErrors = [];
+            const gatewayRequests = [];
+            const gatewayResponses = [];
+            page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+            page.on('pageerror', e => consoleErrors.push(`pageerror:${e.message}`));
+            page.on('request', r => { if (r.url().startsWith('https://gateway.umami.is/')) gatewayRequests.push({url:r.url(),method:r.method()}); });
+            page.on('response', r => { if (r.url().startsWith('https://gateway.umami.is/')) gatewayResponses.push({url:r.url(),status:r.status()}); });
+            await page.route('https://atlas-expat.fr/accompagnement.html*', async route => {
+              await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+            });
+            await page.goto('https://atlas-expat.fr/accompagnement.html?p5ds4-csp-candidate=1', { waitUntil: 'load', timeout: 60000 });
+            await page.evaluate(() => document.fonts.ready);
+            await page.waitForTimeout(3000);
+
+            const metrics = await page.evaluate(() => ({
+              scrollWidth: document.documentElement.scrollWidth,
+              clientWidth: document.documentElement.clientWidth,
+              bodyFont: getComputedStyle(document.body).fontFamily,
+              active: document.querySelector('.atlas-shell__nav a[aria-current="page"]')?.textContent.trim(),
+              services: document.querySelectorAll('.ac-service').length,
+              csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content || ''
+            }));
+            assert(metrics.scrollWidth <= metrics.clientWidth + 1, `${vp.key}: horizontal overflow`);
+            assert(metrics.bodyFont.toLowerCase().includes('manrope'), `${vp.key}: Manrope missing`);
+            assert(metrics.active === 'Accompagnement', `${vp.key}: active nav mismatch`);
+            assert(metrics.services === 3, `${vp.key}: service count mismatch`);
+            assert(metrics.csp.includes('https://gateway.umami.is'), `${vp.key}: gateway absent from parsed CSP`);
+            const cspGatewayErrors = consoleErrors.filter(e => e.includes('gateway.umami.is') && e.toLowerCase().includes('content security policy'));
+            assert(cspGatewayErrors.length === 0, `${vp.key}: gateway still blocked by CSP: ${cspGatewayErrors.join(' | ')}`);
+            assert(gatewayRequests.length >= 1, `${vp.key}: no Umami gateway request observed`);
+
+            await page.locator('.ac-program-button').first().click();
+            const dialog = page.locator('#programmeDialog');
+            assert(await dialog.evaluate(el => el.open), `${vp.key}: programme dialog did not open`);
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(100);
+            assert(!(await dialog.evaluate(el => el.open)), `${vp.key}: Escape did not close dialog`);
+            await page.screenshot({ path: path.join(out, `accompagnement-${vp.key}.png`), fullPage: true });
+            results[vp.key] = { metrics, consoleErrors, gatewayRequests, gatewayResponses };
+            await context.close();
+          }
+
+          await browser.close();
+          fs.writeFileSync(path.join(out, 'candidate-results.json'), JSON.stringify(results, null, 2));
+          fs.writeFileSync(path.join(out, 'candidate-failures.txt'), failures.length ? failures.join('\n') + '\n' : 'NONE\n');
+          console.log(JSON.stringify({ failures, results }, null, 2));
+          if (failures.length) process.exit(1);
+          EOF
+          cd /tmp/p5ds4-csp && node check.mjs
+
+      - name: Upload candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5ds4-analytics-csp-fix-evidence-v2
+          path: qa-artifacts
+          if-no-files-found: error
+          retention-days: 14
