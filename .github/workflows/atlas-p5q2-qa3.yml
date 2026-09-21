@@ -1,0 +1,116 @@
+name: ATLAS P5Q2 Final Visual QA3
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5q2-accompagnement-qa3-20260921
+
+permissions:
+  contents: read
+
+jobs:
+  qa3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify candidate bytes and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=a537da1e0ab9ec3c46503de0a21d6f42b27a59d7
+          CANDIDATE=70db65deb4526b1d685530b22a245ff77cbc6220
+          test "$(git hash-object atlas-exit/accompagnement.html)" = "ab454f998853d1f567cc1bdbba71cb36d875cccf"
+          test "$(git hash-object atlas-exit/atlas-ui-accompagnement.css)" = "91b8bbce65d70eca4e509d11498e6f0d7a69ec12"
+          test "$(git hash-object atlas-exit/atlas-ui.css)" = "a4af3e0236c6622a5488fa7836bca100922f382f"
+          test "$(git hash-object atlas-exit/programmes.js)" = "9e228ee55eb967eb890d6c4efa10ec7918a5553d"
+          git diff --name-only "$BASE" "$CANDIDATE" | sort > /tmp/changed.txt
+          printf '%s\n' atlas-exit/accompagnement.html atlas-exit/atlas-ui-accompagnement.css | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+          test "$(grep -o 'data-program=' atlas-exit/accompagnement.html | wc -l)" -eq 3
+          ! grep -q 'data-program="solo"' atlas-exit/accompagnement.html
+          ! grep -q '<style' atlas-exit/accompagnement.html
+          ! grep -q ' style=' atlas-exit/accompagnement.html
+          grep -q 'https://gateway.umami.is' atlas-exit/accompagnement.html
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+      - name: Desktop mobile visual and behavior gate
+        shell: bash
+        run: |
+          mkdir -p qa-artifacts
+          python -m http.server 8765 --directory atlas-exit >/tmp/server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          cat > /tmp/qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+          out=Path('qa-artifacts')
+          report={'candidate':'70db65deb4526b1d685530b22a245ff77cbc6220','html_blob':'ab454f998853d1f567cc1bdbba71cb36d875cccf','css_blob':'91b8bbce65d70eca4e509d11498e6f0d7a69ec12','views':{}}
+          def stub(p):
+            p.route('https://cloud.umami.is/**',lambda r:r.fulfill(status=200,content_type='application/javascript',body=''))
+            p.route('https://gateway.umami.is/**',lambda r:r.fulfill(status=204,body=''))
+          def ov(p,w):
+            g=p.evaluate("() => ({doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,vw:innerWidth})")
+            assert g['doc']<=w+1 and g['body']<=w+1,g
+            return g
+          with sync_playwright() as pw:
+            b=pw.chromium.launch(headless=True)
+            for label,vp in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+              p=b.new_page(viewport=vp); stub(p); errs=[]; cons=[]
+              p.on('pageerror',lambda e:errs.append(str(e)))
+              p.on('console',lambda m:cons.append(m.text) if m.type=='error' else None)
+              r=p.goto('http://127.0.0.1:8765/accompagnement.html',wait_until='domcontentloaded',timeout=45000)
+              assert r and r.ok
+              p.evaluate('document.fonts.ready'); p.wait_for_timeout(400)
+              geometry=ov(p,vp['width'])
+              rs=p.evaluate("performance.getEntriesByType('resource').map(e=>e.name)")
+              assert p.evaluate("document.fonts.check('16px Manrope')")
+              assert any('Manrope-Variable.ttf' in x for x in rs)
+              assert not any('fonts.googleapis.com' in x or 'fonts.gstatic.com' in x for x in rs)
+              assert p.locator('.atlas-shell__nav a').count()==4
+              if label=='mobile':
+                for i in range(4):
+                  a=p.locator('.atlas-shell__nav a').nth(i); box=a.bounding_box(); fs=a.evaluate('e=>parseFloat(getComputedStyle(e).fontSize)')
+                  assert box and box['height']>=42 and fs>=13,(box,fs)
+              assert p.locator('[data-program]').count()==3
+              assert p.locator('.aq-service__price strong').all_inner_texts()==['990 €','2 500 €','5 000 €']
+              assert p.locator('#thresholdTitle').inner_text()=='L’humain n’est pas systématique.'
+              cover=p.locator('.aq-brief__baseline img').evaluate('i=>({w:i.naturalWidth,h:i.naturalHeight,complete:i.complete})')
+              assert cover['complete'] and cover['w']>0
+              p.screenshot(path=str(out/f'after-{label}.png'),full_page=True)
+              modal=[]
+              for key,title in [('guided','Projet USA'),('coordination','Coordination'),('signature','Signature')]:
+                btn=p.locator(f'[data-program="{key}"]'); btn.scroll_into_view_if_needed(); btn.click(); p.wait_for_timeout(70)
+                d=p.locator('#programmeDialog'); assert d.evaluate('x=>x.open')
+                assert p.locator('#programmeTitle').inner_text()==title
+                assert p.locator('#programmeContact').get_attribute('href')=='start.html'
+                ov(p,vp['width'])
+                p.screenshot(path=str(out/f'after-{label}-{key}-modal.png'),full_page=False)
+                p.locator('#closeProgramme').click(); assert not d.evaluate('x=>x.open')
+                btn.click(); p.keyboard.press('Escape'); p.wait_for_timeout(40); assert not d.evaluate('x=>x.open')
+                modal.append(key)
+              assert not errs,errs
+              assert not cons,cons
+              red=b.new_page(viewport=vp,reduced_motion='reduce'); stub(red); red.goto('http://127.0.0.1:8765/accompagnement.html',wait_until='domcontentloaded'); red.wait_for_timeout(100)
+              dur=red.locator('.aq-service').first.evaluate('e=>getComputedStyle(e).transitionDuration'); assert dur in ('0s','0.00001s','0.01ms','1e-05s'),dur; red.close()
+              report['views'][label]={'status':r.status,'overflow':geometry,'height':p.evaluate('document.documentElement.scrollHeight'),'cover':cover,'modals':modal,'reducedMotion':dur}
+              p.close()
+            b.close()
+          report['status']='PASS'
+          (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/qa.py
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5q2-qa3-final
+          path: qa-artifacts
+          if-no-files-found: error
