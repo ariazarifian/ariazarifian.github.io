@@ -114,7 +114,7 @@
     if(ausIndex<1)return;
     const rowByLabel=label=>[...table.querySelectorAll('tbody tr')].find(tr=>tr.querySelector('td')?.textContent.trim()===label);
     const cell=label=>rowByLabel(label)?.querySelectorAll('td')?.[ausIndex]||null;
-    const set=(label,html)=>{const target=cell(label);if(target){target.innerHTML=html;target.dataset.atlasNormalized='AUS';}};
+    const set=(label,html)=>{const target=cell(label);if(target&&!(target.dataset.atlasNormalized==='AUS'&&target.innerHTML===html)){target.innerHTML=html;target.dataset.atlasNormalized='AUS';}};
     const sourceHtml=['pit','cit_business','consumption_tax'].map(k=>core.renderSources(aus.fields[k])).join('');
     set('Revenu','<span class="val">15–45 %</span><small>Résident 2026–27 · seuil 18 200 AUD · Medicare levy et offsets distincts</small>');
     set('Sociétés','<span class="val">30 % général · 25 % si éligible</span><small>Base-rate entities sous conditions</small>');
