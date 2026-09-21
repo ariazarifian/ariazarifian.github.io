@@ -1,0 +1,151 @@
+name: Atlas P5DS4 release live QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds4-release-qa-20260921
+    paths:
+      - '.github/workflows/atlas-p5ds4-release-live-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  live-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for exact reviewed Accompagnement bytes to be public
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='977d5c3734233c34250a32029fdbfb3aa5bbdaec'
+          ok=0
+          for i in $(seq 1 24); do
+            curl --fail --silent --show-error --location \
+              -H 'Cache-Control: no-cache' \
+              "https://atlas-expat.fr/accompagnement.html?p5ds4-release=${GITHUB_RUN_ID}-${i}" \
+              -o /tmp/accompagnement-live.html || true
+            if [ -s /tmp/accompagnement-live.html ]; then
+              got=$(git hash-object /tmp/accompagnement-live.html)
+              echo "attempt=${i} expected=${expected} got=${got} bytes=$(wc -c </tmp/accompagnement-live.html)"
+              if [ "$got" = "$expected" ]; then ok=1; break; fi
+            fi
+            sleep 10
+          done
+          test "$ok" = 1
+          grep -F "connect-src 'self' https://cloud.umami.is https://gateway.umami.is" /tmp/accompagnement-live.html
+
+      - name: Install Playwright Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/p5ds4-live && cd /tmp/p5ds4-live
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+
+      - name: Verify live desktop and mobile behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa-artifacts
+          cat > /tmp/p5ds4-live/check.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const out = path.resolve(process.env.GITHUB_WORKSPACE, 'qa-artifacts');
+          const browser = await chromium.launch();
+          const failures = [];
+          const results = {};
+          const assert = (cond, msg) => { if (!cond) failures.push(msg); };
+
+          for (const vp of [{key:'desktop',width:1440,height:1000},{key:'mobile',width:390,height:844}]) {
+            const context = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, serviceWorkers: 'block' });
+            const page = await context.newPage();
+            const consoleErrors = [];
+            const pageErrors = [];
+            const gatewayRequests = [];
+            const gatewayResponses = [];
+            page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+            page.on('pageerror', e => pageErrors.push(e.message));
+            page.on('request', r => { if (r.url().startsWith('https://gateway.umami.is/')) gatewayRequests.push({url:r.url(),method:r.method()}); });
+            page.on('response', r => { if (r.url().startsWith('https://gateway.umami.is/')) gatewayResponses.push({url:r.url(),status:r.status()}); });
+
+            await page.goto(`https://atlas-expat.fr/accompagnement.html?p5ds4-live=${Date.now()}-${vp.key}`, { waitUntil: 'load', timeout: 60000 });
+            await page.evaluate(() => document.fonts.ready);
+            await page.waitForTimeout(4500);
+
+            const metrics = await page.evaluate(() => {
+              const nav = [...document.querySelectorAll('.atlas-shell__nav a')].map(a => {
+                const r = a.getBoundingClientRect();
+                return { text: a.textContent.trim(), width: r.width, height: r.height, fontSize: parseFloat(getComputedStyle(a).fontSize) };
+              });
+              return {
+                scrollWidth: document.documentElement.scrollWidth,
+                clientWidth: document.documentElement.clientWidth,
+                bodyFont: getComputedStyle(document.body).fontFamily,
+                active: document.querySelector('.atlas-shell__nav a[aria-current="page"]')?.textContent.trim(),
+                services: document.querySelectorAll('.ac-service').length,
+                csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content || '',
+                nav
+              };
+            });
+
+            assert(metrics.scrollWidth <= metrics.clientWidth + 1, `${vp.key}: horizontal overflow ${metrics.scrollWidth}/${metrics.clientWidth}`);
+            assert(metrics.bodyFont.toLowerCase().includes('manrope'), `${vp.key}: Manrope missing`);
+            assert(metrics.active === 'Accompagnement', `${vp.key}: active nav mismatch`);
+            assert(metrics.services === 3, `${vp.key}: service count mismatch`);
+            assert(metrics.csp.includes('https://gateway.umami.is'), `${vp.key}: gateway absent from parsed CSP`);
+            if (vp.key === 'mobile') {
+              assert(metrics.nav.length === 4, 'mobile: nav count mismatch');
+              assert(metrics.nav.every(n => n.fontSize >= 13), `mobile: nav font too small ${JSON.stringify(metrics.nav)}`);
+              assert(metrics.nav.every(n => n.height >= 42), `mobile: nav target too short ${JSON.stringify(metrics.nav)}`);
+            }
+
+            const gatewayCspErrors = consoleErrors.filter(e => e.includes('gateway.umami.is') && /content security policy|refused to connect/i.test(e));
+            assert(gatewayCspErrors.length === 0, `${vp.key}: gateway blocked by CSP: ${gatewayCspErrors.join(' | ')}`);
+            assert(pageErrors.length === 0, `${vp.key}: page errors: ${pageErrors.join(' | ')}`);
+            assert(gatewayRequests.some(r => r.method === 'POST'), `${vp.key}: no Umami gateway POST observed`);
+            assert(gatewayResponses.some(r => r.status >= 200 && r.status < 300), `${vp.key}: no successful Umami gateway response: ${JSON.stringify(gatewayResponses)}`);
+
+            const buttons = page.locator('.ac-program-button');
+            assert(await buttons.count() === 3, `${vp.key}: expected 3 programme buttons`);
+            for (let i = 0; i < 3; i++) {
+              await buttons.nth(i).click();
+              const dialog = page.locator('#programmeDialog');
+              assert(await dialog.evaluate(el => el.open), `${vp.key}: dialog ${i+1} did not open`);
+              assert((await page.locator('#programmeTitle').textContent())?.trim().length > 0, `${vp.key}: dialog ${i+1} title empty`);
+              if (i === 0) {
+                await page.locator('#closeProgramme').click();
+              } else {
+                await page.keyboard.press('Escape');
+              }
+              await page.waitForTimeout(100);
+              assert(!(await dialog.evaluate(el => el.open)), `${vp.key}: dialog ${i+1} did not close`);
+            }
+
+            await page.screenshot({ path: path.join(out, `accompagnement-live-${vp.key}.png`), fullPage: true });
+            results[vp.key] = { metrics, consoleErrors, pageErrors, gatewayRequests, gatewayResponses };
+            await context.close();
+          }
+
+          await browser.close();
+          fs.writeFileSync(path.join(out, 'live-results.json'), JSON.stringify(results, null, 2));
+          fs.writeFileSync(path.join(out, 'live-failures.txt'), failures.length ? failures.join('\n') + '\n' : 'NONE\n');
+          console.log(JSON.stringify({ failures, results }, null, 2));
+          if (failures.length) process.exit(1);
+          EOF
+          cd /tmp/p5ds4-live && node check.mjs
+
+      - name: Upload live evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5ds4-release-live-evidence
+          path: qa-artifacts
+          if-no-files-found: warn
+          retention-days: 14
