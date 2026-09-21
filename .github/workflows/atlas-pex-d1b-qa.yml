@@ -142,7 +142,7 @@ jobs:
             await browser.close();
             fs.writeFileSync('qa-artifacts/pex-d1b-report.json',JSON.stringify(report,null,2));
             console.log(JSON.stringify(report,null,2));
-          })().catch(e=>{console.error(e);process.exit(1)});
+          })().catch(e=>{fs.writeFileSync('qa-artifacts/pex-d1b-error.txt',String(e?.stack||e));console.error(e);process.exit(1)});
           JS
           NODE_PATH="$PWD/node_modules" node /tmp/qa.cjs
       - name: Reduced motion and immutable shell
