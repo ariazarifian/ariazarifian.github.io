@@ -1,4 +1,4 @@
-/* PEX-D0 — evidence rows inside the accepted Explorer inspector.
+/* PEX-D0 / PEX-D1A — evidence rows inside the accepted Explorer inspector.
    Shared shell/tokens remain owned by atlas-ui.css / atlas-ui-explorer.css. */
 .atlas-evidence{margin-top:14px}
 .atlas-evidence>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:46px;padding:13px 0;border-top:1px solid rgba(200,218,217,.12);color:#d5dfdc;font-size:12px;font-weight:700;letter-spacing:-.01em;cursor:pointer;list-style:none}
@@ -30,10 +30,15 @@
 .atlas-evidence__source .micro{margin:8px 0 0;color:#829396;font-size:9.5px;line-height:1.55}
 .atlas-evidence__source .detail-source,.atlas-evidence__source-name{display:inline-block;margin-top:8px;color:#cdb88e;font-size:9.5px;line-height:1.5}
 .atlas-evidence__source .detail-source:hover{color:#ead9b6}
+.atlas-evidence__sources{margin-top:10px;padding-left:10px;border-left:1px solid rgba(214,193,155,.18)}
+.atlas-evidence__sources-label{display:block;color:#73898b;font-size:8.5px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}
+.atlas-evidence__sources-links{display:flex;flex-wrap:wrap;align-items:center;gap:2px 13px}
+.atlas-evidence__sources .detail-source,.atlas-evidence__sources .atlas-evidence__source-name{margin-top:6px}
 @media(max-width:650px){
   .atlas-evidence>summary{min-height:48px;font-size:12.5px}
   .atlas-evidence__row{padding-block:14px 15px}
   .atlas-evidence__row>strong{font-size:13.5px}
   .atlas-evidence__row>p{font-size:11px}
+  .atlas-evidence__sources-links{display:grid;gap:2px}
 }
 @media(prefers-reduced-motion:reduce){.atlas-evidence>summary::after{transition-duration:.01ms!important}}
