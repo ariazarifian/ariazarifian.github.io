@@ -82,8 +82,8 @@
         healthcare:field({
           state:'READY',headline:'Couverture selon le statut',
           summary:'Les salariés étrangers affiliés au régime de sécurité sociale peuvent bénéficier de prestations médicales ; la couverture n’est pas automatique pour tout résident étranger.',
-          jurisdiction:'Thaïlande · travailleurs étrangers / assurés',verifiedOn:'2026-09-21',sourceVintage:'Matériel ministériel courant',
-          source:source('Thailand Ministry of Labour','https://www.mol.go.th/en/news/labour-minister-visits-trang-to-follow-up-and-drive-legal-employment-of-foreign-workers-100-percent-covered-under-social-security','PRIMARY_MINISTRY/SOCIAL_SECURITY'),
+          jurisdiction:'Thaïlande · travailleurs étrangers / assurés',verifiedOn:'2026-09-21',sourceVintage:'Ministry of Labour · 2025-03-12 · Section 33',
+          source:source('Thailand Ministry of Labour','https://www.mol.go.th/en/news/labour-minister-explains-issues-progresses-with-adjusting-social-security-rights-and-setting-up-a-war-room-to-support-the-prime-minister-in-the-parliamentary-debate','PRIMARY_MINISTRY/SOCIAL_SECURITY'),
           freshness:freshness('CURRENT','ANNUAL+REFORM','Réforme sécurité sociale ou couverture des travailleurs étrangers'),
           caveat:'L’éligibilité dépend notamment de l’emploi et du statut. Ne pas supposer une couverture universelle pour un expatrié hors du régime assuré.',
           structure:{eligibilityBy:['employment','insured_status'],universalForForeignResidents:false}
