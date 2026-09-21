@@ -1,7 +1,7 @@
 name: Atlas PEX-D1B Australia evidence QA
 on:
   push:
-    branches: [ops/atlas-pex-d1b-australia-20260921]
+    branches: [ops/atlas-pex-d1b-australia-fix-20260921]
 permissions:
   contents: read
 jobs:
@@ -17,7 +17,7 @@ jobs:
           node-version: '22'
       - name: Contract fidelity and bounded scope
         env:
-          PRODUCT_HEAD: ac4fd697320e0f843edbdb38d3aee422dbb01d44
+          PRODUCT_HEAD: c2be6f834b2c8b8978e645cb7e055591def9b00d
           BASE_HEAD: d70582d0a70967b828b74425f00de9e7597a0c32
         run: |
           git checkout --detach "$PRODUCT_HEAD"
@@ -64,7 +64,7 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Serve exact Product candidate
         run: |
-          git checkout --detach ac4fd697320e0f843edbdb38d3aee422dbb01d44
+          git checkout --detach c2be6f834b2c8b8978e645cb7e055591def9b00d
           python3 -m http.server 8000 >/tmp/pex-d1b-http.log 2>&1 &
           for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
       - name: Real Chrome desktop and mobile
@@ -75,7 +75,7 @@ jobs:
           const fs=require('node:fs');
           const assert=require('node:assert/strict');
           const url='http://127.0.0.1:8000/atlas-exit/index.html';
-          const report={productHead:'ac4fd697320e0f843edbdb38d3aee422dbb01d44',baseHead:'d70582d0a70967b828b74425f00de9e7597a0c32',viewports:[],errors:[]};
+          const report={productHead:'c2be6f834b2c8b8978e645cb7e055591def9b00d',baseHead:'d70582d0a70967b828b74425f00de9e7597a0c32',viewports:[],errors:[]};
           (async()=>{
             const browser=await chromium.launch({headless:true});
             for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
@@ -93,8 +93,6 @@ jobs:
               await page.locator('#zoomIn').click(); await page.waitForTimeout(100);
               const z1=await page.locator('#zoomValue').textContent(); assert.notEqual(z0,z1);
               if(cfg.name==='mobile'){await page.locator('#mobileFilters').click();assert.equal(await page.locator('#mobileFilters').getAttribute('aria-expanded'),'true');}
-
-              // Normalized scalar reconciliation must reach map/list/filter runtime.
               const runtime=await page.evaluate(()=>{const c=window.AtlasExplorer.getCountries().find(x=>x.id==='AUS');return {tax:c.tax,scope:c.scope,year:c.taxYear,taxStore:window.ATLAS_TAX.AUS.tax,bootstrap:window.ATLAS_FISCAL_FINALIZE.countryEvidenceBootstrap};});
               assert.equal(runtime.tax,45); assert.equal(runtime.taxStore,45); assert.equal(runtime.year,'2026–27'); assert.match(runtime.scope,/Medicare levy/); assert.equal(runtime.bootstrap,'pex-d1b-1');
               await page.locator('#countrySearch').fill('Australie'); await page.waitForTimeout(80);
@@ -119,8 +117,6 @@ jobs:
               assert.equal(await page.locator('.source-disclosure').evaluate(el=>el.hidden),true,'legacy tax source disclosure hidden for AUS');
               const box=await page.locator('#inspector').boundingBox(); assert.ok(box&&box.x>=-1&&box.y>=-1&&box.x+box.width<=cfg.width+1&&box.y+box.height<=cfg.height+1);
               await page.locator('[data-save="AUS"]').click(); assert.equal(await page.locator('#savedCount').textContent(),'1');
-
-              // Thailand accepted module must remain unchanged in behavior.
               await page.locator('[data-dismiss]').click();
               await page.locator('#countrySearch').fill('Thaïlande'); await page.waitForTimeout(80); await page.locator('[data-country="THA"]').click({force:true});
               await page.waitForSelector('[data-atlas-evidence-panel][data-country="THA"]');
@@ -128,13 +124,11 @@ jobs:
               assert.equal(await tha.locator('[data-evidence-field]').count(),8); assert.equal(await tha.locator('a.detail-source').count(),8);
               assert.equal(await page.locator('.tax-stack').evaluate(el=>el.hidden),false,'Thailand legacy stack remains unchanged');
               await page.locator('[data-save="THA"]').click(); assert.equal(await page.locator('#savedCount').textContent(),'2');
-
               await page.locator('#openCompare').click(); await page.locator('#compareDialog').waitFor({state:'visible'}); await page.waitForTimeout(80);
               const compare=await page.locator('#compareTable').innerText();
               assert.match(compare,/Australie/); assert.match(compare,/15–45 %/); assert.match(compare,/30 % général · 25 % si éligible/); assert.match(compare,/10 %/); assert.match(compare,/Medicare levy et offsets distincts/);
               assert.ok(await page.locator('#compareTable [data-atlas-normalized="AUS"]').count()>=5);
               await page.locator('#compareDialog [data-close]').click();
-
               await page.screenshot({path:`qa-artifacts/pex-d1b-${cfg.name}.png`,fullPage:false});
               const full=await page.screenshot({path:`qa-artifacts/pex-d1b-${cfg.name}-full.png`,fullPage:true});
               report.viewports.push({name:cfg.name,width:cfg.width,height:cfg.height,zoom:[z0,z1],runtime,fields:8,sourceLinks:11,multiSourceGroups:3,inspector:box,fullScreenshotBytes:full.length});
@@ -144,13 +138,13 @@ jobs:
             await browser.close();
             fs.writeFileSync('qa-artifacts/pex-d1b-report.json',JSON.stringify(report,null,2));
             console.log(JSON.stringify(report,null,2));
-          })().catch(e=>{console.error(e);process.exit(1)});
+          })().catch(e=>{fs.writeFileSync('qa-artifacts/pex-d1b-error.txt',String(e?.stack||e));console.error(e);process.exit(1)});
           JS
           NODE_PATH="$PWD/node_modules" node /tmp/qa.cjs
       - name: Reduced motion and immutable shell
         run: |
           grep -q '@media(prefers-reduced-motion:reduce)' atlas-exit/atlas-country-evidence.css
-          git diff --exit-code d70582d0a70967b828b74425f00de9e7597a0c32 ac4fd697320e0f843edbdb38d3aee422dbb01d44 -- atlas-exit/country-evidence.js atlas-exit/atlas-country-evidence.css atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/sitemap.xml atlas-exit/robots.txt
+          git diff --exit-code d70582d0a70967b828b74425f00de9e7597a0c32 c2be6f834b2c8b8978e645cb7e055591def9b00d -- atlas-exit/country-evidence.js atlas-exit/atlas-country-evidence.css atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/sitemap.xml atlas-exit/robots.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
