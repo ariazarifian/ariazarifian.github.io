@@ -61,8 +61,8 @@ const fieldSource=f=>`<a class="detail-source" href="${esc(f.source.url)}" targe
 const evidenceDetail=(key,f)=>`<div class="country-evidence__item"><p><strong>${esc(f.label)}</strong> · ${esc(f.headline)}</p><p class="micro">${esc(f.source.sourceClass)} · ${esc(f.jurisdiction)} · vérifié le ${esc(f.verifiedOn)} · ${esc(f.freshnessState)}</p><p class="micro">Limite : ${esc(f.caveat)}</p>${fieldSource(f)}</div>`;
 function renderThailandEvidence(root){
   if(root.querySelector('[data-country-evidence="THA"]'))return;
-  const body=root.querySelector('.inspector-body'),code=root.querySelector('.inspector-title .country-code')?.textContent?.trim();
-  if(!body||code!=='THA')return;
+  const body=root.querySelector('.inspector-body'),title=root.querySelector('.inspector-title h2')?.textContent?.trim();
+  if(!body||title!=='Thaïlande')return;
   const f=THA.fields,anchor=body.querySelector('.detail-section');if(!anchor)return;
   const section=document.createElement('section');section.className='detail-section';section.dataset.countryEvidence='THA';
   section.innerHTML=`<h3>VIVRE & S’INSTALLER · REPÈRES SOURCÉS</h3><div class="local-time"><span>Résidence fiscale</span><time>${esc(f.tax_residency.headline)}</time></div><p>${esc(f.tax_residency.summary)}</p><div class="local-time"><span>Court séjour · passeport français</span><time>${esc(f.residence_visa.headline)}</time></div><p>${esc(f.residence_visa.summary)}</p><div class="metrics-pair"><div><small>GRAND BANGKOK · MÉNAGE 2024</small><strong>30 464 THB</strong><p class="scope">dépense moyenne / mois</p></div><div><small>THAÏLANDE · MÉNAGE 2024</small><strong>22 282 THB</strong><p class="scope">dépense moyenne / mois</p></div></div><p>${esc(f.cost_context.summary)}</p><p><strong>Santé.</strong> ${esc(f.healthcare.summary)}</p><p><strong>Sécurité.</strong> ${esc(f.safety_context.summary)}</p>`;
