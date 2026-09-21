@@ -11,7 +11,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,11 +32,10 @@ jobs:
           assert 'internalCoverage' in js
           print('Static contract PASS')
           PY
-      - name: Install browser
+      - name: Prepare real browser harness
         run: |
-          npm init -y >/dev/null 2>&1
-          npm install --no-save playwright@1.55.0 >/dev/null
-          npx playwright install --with-deps chromium
+          google-chrome --version
+          npm install --prefix /tmp/pex-playwright --no-save playwright-core@1.55.0 >/dev/null
       - name: Real-browser Explorer regression
         run: |
           mkdir -p /tmp/atlas-pex-d0-artifacts
@@ -45,12 +44,12 @@ jobs:
           trap 'kill $SERVER_PID || true' EXIT
           sleep 1
           cat >.pex-d0-qa.cjs <<'NODE'
-          const { chromium } = require('playwright');
+          const { chromium } = require('/tmp/pex-playwright/node_modules/playwright-core');
           const fs = require('fs');
           const results = {};
           const badText = /À documenter|pas encore documenté|pas encore documentés/i;
           async function run(viewport, name, compare=false){
-            const browser = await chromium.launch({headless:true});
+            const browser = await chromium.launch({headless:true, executablePath:'/usr/bin/google-chrome'});
             const context = await browser.newContext({viewport, reducedMotion:'reduce'});
             const page = await context.newPage();
             const errors=[];
@@ -66,17 +65,19 @@ jobs:
             const row=page.locator('[data-country="THA"]');
             await row.waitFor({state:'visible'});
             await row.click();
-            await page.locator('[data-country-evidence="THA"]').waitFor({state:'visible'});
+            await page.locator('[data-country-evidence="THA"]').waitFor({state:'attached'});
             const contract=await page.evaluate(()=>({
               core:window.ATLAS_COUNTRY_EVIDENCE?.coreFields,
               coverage:window.ATLAS_COUNTRY_EVIDENCE?.internalCoverage('THA'),
               hold:window.ATLAS_COUNTRY_EVIDENCE?.getField('CHE','healthcare')?.evidenceState,
               scrollWidth:document.documentElement.scrollWidth,
               innerWidth:innerWidth,
-              inspector:(()=>{const r=document.querySelector('#inspector').getBoundingClientRect();return{left:r.left,right:r.right,width:r.width}})()
+              inspectorHidden:document.querySelector('#inspector').hidden,
+              inspector:(()=>{const r=document.querySelector('#inspector').getBoundingClientRect();return{left:r.left,right:r.right,width:r.width,height:r.height}})()
             }));
             if(contract.core?.length!==8 || contract.coverage?.readyKeys?.length!==8 || contract.coverage?.holdKeys?.length!==0) throw new Error('Normalized core contract failed: '+JSON.stringify(contract));
             if(contract.hold!=='HOLD') throw new Error('Unknown path is not HOLD');
+            if(contract.inspectorHidden || contract.inspector.width<100 || contract.inspector.height<100) throw new Error('Inspector not rendered: '+JSON.stringify(contract));
             if(contract.scrollWidth > contract.innerWidth+1) throw new Error('Horizontal overflow: '+JSON.stringify(contract));
             if(contract.inspector.left < -1 || contract.inspector.right > contract.innerWidth+1) throw new Error('Inspector outside viewport: '+JSON.stringify(contract.inspector));
             const inspectorText=await page.locator('#inspectorContent').innerText();
@@ -105,6 +106,9 @@ jobs:
               await page.locator('[data-region="Asia"]').click();
               const count=await page.locator('#resultCount').innerText(); if(!/destination/.test(count)) throw new Error('Region filter regression');
               await page.locator('#resetFilters').click();
+              await page.locator('#countrySearch').fill('Thaïlande');
+              await page.locator('[data-country="THA"]').click();
+              await page.locator('[data-country-evidence="THA"]').waitFor({state:'attached'});
             }
             await page.screenshot({path:`/tmp/atlas-pex-d0-artifacts/${name}-thailand-inspector.png`,fullPage:true});
             if(errors.length) throw new Error(errors.join('\n'));
