@@ -1,0 +1,254 @@
+name: Atlas P5DS4 closure QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5ds4-closure-20260921
+    paths:
+      - '.github/workflows/atlas-p5ds4-closure.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  closure-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact QA branch
+        uses: actions/checkout@v4
+
+      - name: Prove live product bytes match production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa-artifacts/live
+          for f in index.html offres.html parcours-usa.html accompagnement.html atlas-ui.css atlas-ui-guide.css atlas-ui-explorer.css; do
+            curl --fail --silent --show-error --location --retry 3 \
+              -H 'Cache-Control: no-cache' \
+              "https://atlas-expat.fr/${f}?p5ds4=${GITHUB_RUN_ID}" \
+              -o "qa-artifacts/live/${f}"
+            cmp "atlas-exit/${f}" "qa-artifacts/live/${f}"
+            sha256sum "atlas-exit/${f}" | tee -a qa-artifacts/exact-byte-sha256.txt
+          done
+          echo "LIVE_BYTES_MATCH=1" | tee qa-artifacts/exact-byte-proof.txt
+
+      - name: Install Playwright Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/p5ds4
+          cd /tmp/p5ds4
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium
+
+      - name: Run exact-production four-surface browser closure sweep
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/p5ds4/closure.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const BASE = 'https://atlas-expat.fr/';
+          const OUT = path.resolve(process.env.GITHUB_WORKSPACE, 'qa-artifacts');
+          fs.mkdirSync(OUT, { recursive: true });
+
+          const surfaces = [
+            { key: 'explorer', path: 'index.html', active: 'Explorer' },
+            { key: 'guide', path: 'offres.html?countries=USA', active: 'Guide USA' },
+            { key: 'roadmap', path: 'parcours-usa.html', active: 'Roadmap' },
+            { key: 'accompagnement', path: 'accompagnement.html', active: 'Accompagnement' },
+          ];
+          const viewports = [
+            { key: 'desktop', width: 1440, height: 1000 },
+            { key: 'mobile', width: 390, height: 844 },
+          ];
+          const expectedNav = ['Explorer', 'Guide USA', 'Roadmap', 'Accompagnement'];
+          const failures = [];
+          const summary = { base: BASE, surfaces: {}, console: {}, generatedAt: new Date().toISOString() };
+          const browser = await chromium.launch();
+
+          const fail = (msg) => { failures.push(msg); console.error('ASSERT_FAIL:', msg); };
+          const assert = (cond, msg) => { if (!cond) fail(msg); };
+          const durationMs = (value) => String(value || '').split(',').map(s => s.trim()).filter(Boolean).map(v => {
+            const n = Number.parseFloat(v);
+            if (!Number.isFinite(n)) return 0;
+            return v.endsWith('ms') ? n : v.endsWith('s') ? n * 1000 : n;
+          });
+
+          for (const vp of viewports) {
+            summary.surfaces[vp.key] = {};
+            for (const surface of surfaces) {
+              const context = await browser.newContext({
+                viewport: { width: vp.width, height: vp.height },
+                reducedMotion: 'no-preference',
+                serviceWorkers: 'block',
+              });
+              const page = await context.newPage();
+              const runtimeErrors = [];
+              page.on('pageerror', e => runtimeErrors.push(`pageerror:${e.message}`));
+              page.on('console', msg => { if (msg.type() === 'error') runtimeErrors.push(`console:${msg.text()}`); });
+              await page.goto(new URL(surface.path, BASE).href, { waitUntil: 'load', timeout: 60000 });
+              await page.evaluate(() => document.fonts.ready);
+              await page.waitForTimeout(900);
+
+              const metrics = await page.evaluate(() => {
+                const navLinks = [...document.querySelectorAll('.atlas-shell__nav a')];
+                const active = document.querySelector('.atlas-shell__nav a[aria-current="page"]');
+                const rect = el => {
+                  const r = el.getBoundingClientRect();
+                  return { x:r.x, y:r.y, width:r.width, height:r.height, right:r.right, bottom:r.bottom };
+                };
+                const nav = navLinks.map(a => ({
+                  text: a.textContent.trim(),
+                  rect: rect(a),
+                  fontSize: parseFloat(getComputedStyle(a).fontSize),
+                  fontFamily: getComputedStyle(a).fontFamily,
+                }));
+                return {
+                  title: document.title,
+                  bodyFont: getComputedStyle(document.body).fontFamily,
+                  manropeReady: document.fonts.check('16px Manrope'),
+                  scrollWidth: document.documentElement.scrollWidth,
+                  clientWidth: document.documentElement.clientWidth,
+                  nav,
+                  active: active?.textContent.trim() || null,
+                  wordmark: document.querySelector('.atlas-wordmark')?.textContent.replace(/\s+/g,' ').trim() || null,
+                  shell: document.querySelector('.atlas-shell') ? rect(document.querySelector('.atlas-shell')) : null,
+                };
+              });
+
+              assert(metrics.scrollWidth <= metrics.clientWidth + 1, `${vp.key}/${surface.key}: horizontal overflow ${metrics.scrollWidth}>${metrics.clientWidth}`);
+              assert(metrics.manropeReady, `${vp.key}/${surface.key}: Manrope not ready`);
+              assert(metrics.bodyFont.toLowerCase().includes('manrope'), `${vp.key}/${surface.key}: body font is ${metrics.bodyFont}`);
+              assert(metrics.wordmark === 'ATLAS EXIT', `${vp.key}/${surface.key}: wordmark mismatch ${metrics.wordmark}`);
+              assert(JSON.stringify(metrics.nav.map(n => n.text)) === JSON.stringify(expectedNav), `${vp.key}/${surface.key}: nav mismatch`);
+              assert(metrics.active === surface.active, `${vp.key}/${surface.key}: active nav ${metrics.active} != ${surface.active}`);
+              for (const item of metrics.nav) {
+                assert(item.rect.x >= -1 && item.rect.right <= vp.width + 1, `${vp.key}/${surface.key}: nav ${item.text} outside viewport`);
+                if (vp.key === 'mobile') {
+                  assert(item.fontSize >= 12.5, `${vp.key}/${surface.key}: nav ${item.text} font ${item.fontSize}px`);
+                  assert(item.rect.height >= 40, `${vp.key}/${surface.key}: nav ${item.text} target ${item.rect.height}px`);
+                }
+              }
+
+              const firstNav = page.locator('.atlas-shell__nav a').first();
+              await firstNav.focus();
+              const focus = await firstNav.evaluate(el => {
+                const s = getComputedStyle(el);
+                return { outlineStyle:s.outlineStyle, outlineWidth:s.outlineWidth, outlineColor:s.outlineColor, boxShadow:s.boxShadow };
+              });
+              const outlinePx = parseFloat(focus.outlineWidth) || 0;
+              assert((focus.outlineStyle !== 'none' && outlinePx >= 1) || focus.boxShadow !== 'none', `${vp.key}/${surface.key}: no visible keyboard focus treatment`);
+
+              if (surface.key === 'explorer') {
+                await page.waitForFunction(() => document.querySelectorAll('#countries path').length >= 200, null, { timeout: 30000 });
+                const mapCount = await page.locator('#countries path').count();
+                assert(mapCount >= 200, `${vp.key}/explorer: only ${mapCount} map geometries`);
+                await page.locator('#countrySearch').fill('Portugal');
+                await page.waitForTimeout(250);
+                assert((await page.locator('#results').innerText()).toLowerCase().includes('portugal'), `${vp.key}/explorer: Portugal search missing`);
+                await page.locator('button[data-region="Europe"]').click();
+                assert(await page.locator('button[data-region="Europe"]').getAttribute('aria-pressed') === 'true', `${vp.key}/explorer: Europe filter did not activate`);
+                if (vp.key === 'mobile') {
+                  const toggle = page.locator('#mobileFilters');
+                  if (await toggle.isVisible()) {
+                    await toggle.click();
+                    await page.waitForTimeout(180);
+                    const sb = await page.locator('#sidebar').boundingBox();
+                    assert(!!sb && sb.x >= -1 && sb.x + sb.width <= vp.width + 1, `mobile/explorer: filter drawer outside viewport`);
+                    await page.screenshot({ path: path.join(OUT, 'explorer-mobile-filters-open.png'), fullPage: true });
+                    await toggle.click();
+                  }
+                }
+              }
+
+              if (surface.key === 'guide') {
+                const cover = page.locator('.gd-edition__cover');
+                assert(await cover.evaluate(img => img.complete && img.naturalWidth > 0), `${vp.key}/guide: V15 cover not loaded`);
+                assert((await page.locator('a[data-atlas-event="guide_download_click"]').first().getAttribute('href')) === 'https://atlas-exit-delivery.onrender.com/free-guide/usa', `${vp.key}/guide: V15 route mismatch`);
+                const details = page.locator('.gd-disclosures details');
+                assert(await details.count() === 3, `${vp.key}/guide: disclosure count mismatch`);
+                await details.nth(1).locator('summary').click();
+                assert(await details.nth(1).evaluate(el => el.open), `${vp.key}/guide: disclosure did not open`);
+              }
+
+              if (surface.key === 'roadmap') {
+                await page.evaluate(() => localStorage.clear());
+                await page.reload({ waitUntil: 'load' });
+                await page.waitForTimeout(250);
+                assert(await page.locator('input[data-step]').count() === 8, `${vp.key}/roadmap: step count mismatch`);
+                assert((await page.locator('#doneCount').innerText()).trim() === '0', `${vp.key}/roadmap: fresh progress not 0`);
+                await page.locator('#city').fill('New York');
+                await page.locator('#routeForm button[type="submit"]').click();
+                assert(await page.locator('#routeSummary').isVisible(), `${vp.key}/roadmap: route summary did not show`);
+                await page.locator('input[data-step="immigration"]').check();
+                assert((await page.locator('#doneCount').innerText()).trim() === '1', `${vp.key}/roadmap: progress did not become 1`);
+              }
+
+              if (surface.key === 'accompagnement') {
+                assert(await page.locator('.ac-service').count() === 3, `${vp.key}/accompagnement: service count mismatch`);
+                await page.locator('.ac-program-button').first().click();
+                const dialog = page.locator('#programmeDialog');
+                assert(await dialog.evaluate(el => el.open), `${vp.key}/accompagnement: programme dialog did not open`);
+                assert((await page.locator('#programmeTitle').innerText()).trim().length > 0, `${vp.key}/accompagnement: modal title empty`);
+                await page.keyboard.press('Escape');
+                await page.waitForTimeout(100);
+                assert(!(await dialog.evaluate(el => el.open)), `${vp.key}/accompagnement: Escape did not close dialog`);
+              }
+
+              await page.screenshot({ path: path.join(OUT, `${surface.key}-${vp.key}.png`), fullPage: true });
+              summary.surfaces[vp.key][surface.key] = { metrics, focus, runtimeErrors };
+              summary.console[`${vp.key}/${surface.key}`] = runtimeErrors;
+              await context.close();
+            }
+          }
+
+          // Cross-surface nav sizing should stay coherent within each viewport.
+          for (const vp of viewports) {
+            const records = Object.values(summary.surfaces[vp.key]);
+            for (let i = 0; i < 4; i++) {
+              const sizes = records.map(r => r.metrics.nav[i].fontSize);
+              assert(Math.max(...sizes) - Math.min(...sizes) <= 0.6, `${vp.key}: nav font size drift at item ${i}: ${sizes.join(',')}`);
+            }
+          }
+
+          // Reduced-motion proof on every surface, independent of Chromium serialization (ms vs e-05s).
+          summary.reducedMotion = {};
+          for (const surface of surfaces) {
+            const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', serviceWorkers: 'block' });
+            const page = await context.newPage();
+            await page.goto(new URL(surface.path, BASE).href, { waitUntil: 'load', timeout: 60000 });
+            await page.evaluate(() => document.fonts.ready);
+            const motion = await page.locator('.atlas-shell__nav a').first().evaluate(el => {
+              const s = getComputedStyle(el);
+              return { transitionDuration:s.transitionDuration, animationDuration:s.animationDuration };
+            });
+            const transitionMs = durationMs(motion.transitionDuration);
+            const animationMs = durationMs(motion.animationDuration);
+            assert(transitionMs.every(v => v <= 0.05), `reduced-motion/${surface.key}: transition ${motion.transitionDuration}`);
+            assert(animationMs.every(v => v <= 0.05), `reduced-motion/${surface.key}: animation ${motion.animationDuration}`);
+            summary.reducedMotion[surface.key] = { ...motion, transitionMs, animationMs };
+            await context.close();
+          }
+
+          await browser.close();
+          fs.writeFileSync(path.join(OUT, 'closure-summary.json'), JSON.stringify(summary, null, 2));
+          fs.writeFileSync(path.join(OUT, 'closure-failures.txt'), failures.length ? failures.join('\n') + '\n' : 'NONE\n');
+          console.log(JSON.stringify({ failures, surfaces: Object.keys(summary.surfaces.desktop), reducedMotion: summary.reducedMotion }, null, 2));
+          if (failures.length) process.exit(1);
+          EOF
+          cd /tmp/p5ds4
+          node closure.mjs
+
+      - name: Upload closure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5ds4-closure-evidence
+          path: qa-artifacts
+          if-no-files-found: error
+          retention-days: 14
