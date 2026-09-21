@@ -1,19 +1,19 @@
 {
   "edition": "15.0",
-  "source_pdf_bytes": 8012032,
-  "source_pdf_sha256": "a91df6b806c65cba8a2c868b996155e29429b7494815368c768aa676b21781dc",
-  "gzip_bytes": 7474536,
-  "ciphertext_bytes": 7474536,
-  "ciphertext_sha256": "89f269ce6aa7e88e413885441892b7a3f221719ac42d3a19589379553cfccae8",
-  "nonce_b64": "j0wv+xs2eL5hsK+A",
-  "tag_b64": "5W0VitV7WOmd6KsD+0XxGg==",
+  "source_pdf_bytes": 8010883,
+  "source_pdf_sha256": "0ad900508565222af12adf04a7fe7a66e774c65258eebeb1d5aa77d5e352016f",
+  "gzip_bytes": 7473774,
+  "ciphertext_bytes": 7473774,
+  "ciphertext_sha256": "e2a940b168b50f3e6b4e40dffaff2e494d04ebc0bd214f45c676f04332e81425",
+  "nonce_b64": "oFV9yHIJG+7Vll6w",
+  "tag_b64": "hWLmPlFkkKHyE7O9hAbyAA==",
   "aad": "atlas-guide-usa-free-v15:gzip",
   "key_source": "FREE_GUIDE_KEY_HEX Render environment only",
   "key_committed": false,
-  "base64_chars": 9966048,
+  "base64_chars": 9965032,
   "chunk_count": 2,
   "chunk_chars_each": [
-    4983024,
-    4983024
+    4982516,
+    4982516
   ]
 }
