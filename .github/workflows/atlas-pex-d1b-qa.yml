@@ -17,7 +17,7 @@ jobs:
           node-version: '22'
       - name: Contract fidelity and bounded scope
         env:
-          PRODUCT_HEAD: ac4fd697320e0f843edbdb38d3aee422dbb01d44
+          PRODUCT_HEAD: 252fbb6e202865f958cd4eb016e7e243f3947bdc
           BASE_HEAD: d70582d0a70967b828b74425f00de9e7597a0c32
         run: |
           git checkout --detach "$PRODUCT_HEAD"
@@ -64,7 +64,7 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Serve exact Product candidate
         run: |
-          git checkout --detach ac4fd697320e0f843edbdb38d3aee422dbb01d44
+          git checkout --detach 252fbb6e202865f958cd4eb016e7e243f3947bdc
           python3 -m http.server 8000 >/tmp/pex-d1b-http.log 2>&1 &
           for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
       - name: Real Chrome desktop and mobile
@@ -75,7 +75,7 @@ jobs:
           const fs=require('node:fs');
           const assert=require('node:assert/strict');
           const url='http://127.0.0.1:8000/atlas-exit/index.html';
-          const report={productHead:'ac4fd697320e0f843edbdb38d3aee422dbb01d44',baseHead:'d70582d0a70967b828b74425f00de9e7597a0c32',viewports:[],errors:[]};
+          const report={productHead:'252fbb6e202865f958cd4eb016e7e243f3947bdc',baseHead:'d70582d0a70967b828b74425f00de9e7597a0c32',viewports:[],errors:[]};
           (async()=>{
             const browser=await chromium.launch({headless:true});
             for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
@@ -94,7 +94,6 @@ jobs:
               const z1=await page.locator('#zoomValue').textContent(); assert.notEqual(z0,z1);
               if(cfg.name==='mobile'){await page.locator('#mobileFilters').click();assert.equal(await page.locator('#mobileFilters').getAttribute('aria-expanded'),'true');}
 
-              // Normalized scalar reconciliation must reach map/list/filter runtime.
               const runtime=await page.evaluate(()=>{const c=window.AtlasExplorer.getCountries().find(x=>x.id==='AUS');return {tax:c.tax,scope:c.scope,year:c.taxYear,taxStore:window.ATLAS_TAX.AUS.tax,bootstrap:window.ATLAS_FISCAL_FINALIZE.countryEvidenceBootstrap};});
               assert.equal(runtime.tax,45); assert.equal(runtime.taxStore,45); assert.equal(runtime.year,'2026–27'); assert.match(runtime.scope,/Medicare levy/); assert.equal(runtime.bootstrap,'pex-d1b-1');
               await page.locator('#countrySearch').fill('Australie'); await page.waitForTimeout(80);
@@ -120,7 +119,6 @@ jobs:
               const box=await page.locator('#inspector').boundingBox(); assert.ok(box&&box.x>=-1&&box.y>=-1&&box.x+box.width<=cfg.width+1&&box.y+box.height<=cfg.height+1);
               await page.locator('[data-save="AUS"]').click(); assert.equal(await page.locator('#savedCount').textContent(),'1');
 
-              // Thailand accepted module must remain unchanged in behavior.
               await page.locator('[data-dismiss]').click();
               await page.locator('#countrySearch').fill('Thaïlande'); await page.waitForTimeout(80); await page.locator('[data-country="THA"]').click({force:true});
               await page.waitForSelector('[data-atlas-evidence-panel][data-country="THA"]');
@@ -150,7 +148,7 @@ jobs:
       - name: Reduced motion and immutable shell
         run: |
           grep -q '@media(prefers-reduced-motion:reduce)' atlas-exit/atlas-country-evidence.css
-          git diff --exit-code d70582d0a70967b828b74425f00de9e7597a0c32 ac4fd697320e0f843edbdb38d3aee422dbb01d44 -- atlas-exit/country-evidence.js atlas-exit/atlas-country-evidence.css atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/sitemap.xml atlas-exit/robots.txt
+          git diff --exit-code d70582d0a70967b828b74425f00de9e7597a0c32 252fbb6e202865f958cd4eb016e7e243f3947bdc -- atlas-exit/country-evidence.js atlas-exit/atlas-country-evidence.css atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/sitemap.xml atlas-exit/robots.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
