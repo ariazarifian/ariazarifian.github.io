@@ -1,0 +1,116 @@
+name: Atlas P6-E3 controlled release
+
+on:
+  push:
+    branches:
+      - ops/atlas-p6e3-release-run-20260921-0537
+    paths:
+      - .github/workflows/atlas-p6e3-release.yml
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      PROD_BRANCH: ops/atlas-exit-20260914
+      EXPECTED_HEAD: 8a56d90d3417f420ad16efce52e72122bed9b591
+      CANDIDATE_URL: 'https://sdmntpreastus2.oaiusercontent.com/files/00000000-a4e8-81f6-b47b-eb33e49c696f/raw?se=2026-09-21T03%3A48%3A10Z&sp=r&sv=2026-02-06&sr=b&scid=efe5354f-f011-5346-bda0-762f174aac99&skoid=5af52a61-57d2-4c45-a3cc-637b0d8dbcf5&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-20T18%3A11%3A11Z&ske=2026-09-21T18%3A11%3A11Z&sks=b&skv=2026-02-06&sig=4KeVC1BILk2muoRvH4xkAuQlSdCh/wDRn2WAFBDLiU8%3D'
+      ROLLBACK_URL: 'https://sdmntpreastus2.oaiusercontent.com/files/00000000-3510-81f6-9d15-30db8cc4ff73/raw?se=2026-09-21T03%3A48%3A14Z&sp=r&sv=2026-02-06&sr=b&scid=99f7aa38-c4bc-5ac0-9e2e-42fee57d5190&skoid=b0fd38cc-3d33-418f-920e-4798de4acdd1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-20T18%3A19%3A20Z&ske=2026-09-21T18%3A19%3A20Z&sks=b&skv=2026-02-06&sig=ugnAmqVEXtC/u%2B2geiI2xE3NhYt7m8VBLZLEnSsJ%2Bsw%3D'
+      CANDIDATE_SHA: a91df6b806c65cba8a2c868b996155e29429b7494815368c768aa676b21781dc
+      CANDIDATE_BYTES: '8012032'
+      ROLLBACK_SHA: 0ad900508565222af12adf04a7fe7a66e774c65258eebeb1d5aa77d5e352016f
+      ROLLBACK_BYTES: '8010883'
+      WRAP_PUBLIC_KEY_B64: LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUE0VVJFNEs2NVN4NzFxOEtRL0c1RApxQjJTRWJWR0hGaEJ2REo4a1FWdzR3dmh3K2FpamZySnlvb1RCMnhYYi9nQ0NiSWt0Z1g0em05OGdEWDR1VzVmCk9RTWVudlVrV2xPOWRqMm1IZUc2T0k0eUNZUmlNQ2tBR0JWUzdBdVNmUEhsQUNWNlJ1WEZLZjdpZEMyNU9tTVUKVzlpTGNmOU5XY242elJuWWNBbDAyT2xkbWJJQW81cFRuRkdtRXlram92dGNzV2FpY3VwWW92bUNyV3pTSjRiagorQ2g0S05HMW9aUzN0Zk9ZOE1EcGY1aktXc1gxN2NFMW1SVjZTQnRzRXRJL254R01ZVm9qaitIVG1scG1MRVpOCjhCNzRiQk5YbnlWdGs4N2ppcVFvMlRIMEM2MHJ1WWZTVm5KTUU5Tm5IeVhwUkZNWjB2OEtSY3hTSXhCOEZySWwKcVFJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PROD_BRANCH }}
+          fetch-depth: 0
+
+      - name: Prepare exact candidate and rollback commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$PROD_BRANCH"
+          actual=$(git rev-parse "origin/$PROD_BRANCH")
+          test "$actual" = "$EXPECTED_HEAD"
+          git reset --hard "$EXPECTED_HEAD"
+          mkdir -p .release-control
+          curl -fsSL --retry 2 --retry-delay 1 "$CANDIDATE_URL" -o /tmp/candidate.pdf
+          curl -fsSL --retry 2 --retry-delay 1 "$ROLLBACK_URL" -o /tmp/rollback.pdf
+          test "$(stat -c%s /tmp/candidate.pdf)" = "$CANDIDATE_BYTES"
+          test "$(sha256sum /tmp/candidate.pdf | awk '{print $1}')" = "$CANDIDATE_SHA"
+          test "$(stat -c%s /tmp/rollback.pdf)" = "$ROLLBACK_BYTES"
+          test "$(sha256sum /tmp/rollback.pdf | awk '{print $1}')" = "$ROLLBACK_SHA"
+          head -c 32 /dev/urandom > /tmp/free_key.bin
+          cat > /tmp/build-free-payload.js <<'NODE'
+          const fs=require('fs'), zlib=require('zlib'), crypto=require('crypto');
+          const mode=process.argv[2], pdfPath=process.argv[3], expectedSha=process.argv[4], expectedBytes=Number(process.argv[5]);
+          const key=fs.readFileSync('/tmp/free_key.bin');
+          const pdf=fs.readFileSync(pdfPath);
+          const sha=crypto.createHash('sha256').update(pdf).digest('hex');
+          if(pdf.length!==expectedBytes||sha!==expectedSha) throw new Error('source identity mismatch');
+          const gz=zlib.gzipSync(pdf,{level:9,mtime:0});
+          const nonce=crypto.randomBytes(12);
+          const cipher=crypto.createCipheriv('aes-256-gcm',key,nonce);
+          cipher.setAAD(Buffer.from('atlas-guide-usa-free-v15:gzip','utf8'));
+          const ciphertext=Buffer.concat([cipher.update(gz),cipher.final()]);
+          const tag=cipher.getAuthTag();
+          const b64=ciphertext.toString('base64');
+          const split=Math.ceil(b64.length/2);
+          fs.writeFileSync('atlas-delivery/payload-free-v15/chunk1.txt',b64.slice(0,split));
+          fs.writeFileSync('atlas-delivery/payload-free-v15/chunk2.txt',b64.slice(split));
+          const meta={edition:'15.0',source_pdf_bytes:pdf.length,source_pdf_sha256:sha,gzip_bytes:gz.length,ciphertext_bytes:ciphertext.length,ciphertext_sha256:crypto.createHash('sha256').update(ciphertext).digest('hex'),nonce_b64:nonce.toString('base64'),tag_b64:tag.toString('base64'),aad:'atlas-guide-usa-free-v15:gzip',key_source:'FREE_GUIDE_KEY_HEX Render environment only',key_committed:false,base64_chars:b64.length,chunk_count:2,chunk_chars_each:[split,b64.length-split]};
+          fs.writeFileSync('atlas-delivery/payload-free-v15/manifest.json',JSON.stringify(meta,null,2)+'\n');
+          let server=fs.readFileSync('atlas-delivery/server.js','utf8');
+          server=server.replace(/const FREE_GUIDE_SHA256 = '[0-9a-f]{64}';/,`const FREE_GUIDE_SHA256 = '${sha}';`)
+                       .replace(/const FREE_GUIDE_NONCE_B64 = '[^']+';/,`const FREE_GUIDE_NONCE_B64 = '${meta.nonce_b64}';`)
+                       .replace(/const FREE_GUIDE_TAG_B64 = '[^']+';/,`const FREE_GUIDE_TAG_B64 = '${meta.tag_b64}';`);
+          if(!server.includes(`const FREE_GUIDE_SHA256 = '${sha}';`)) throw new Error('server constant update failed');
+          fs.writeFileSync('atlas-delivery/server.js',server);
+          fs.writeFileSync(`/tmp/${mode}-meta.json`,JSON.stringify(meta,null,2)+'\n');
+          NODE
+          node /tmp/build-free-payload.js candidate /tmp/candidate.pdf "$CANDIDATE_SHA" "$CANDIDATE_BYTES"
+          git add atlas-delivery/server.js atlas-delivery/payload-free-v15/chunk1.txt atlas-delivery/payload-free-v15/chunk2.txt atlas-delivery/payload-free-v15/manifest.json
+          test "$(git diff --cached --name-only | wc -l)" -eq 4
+          git diff --cached --name-only | sort > /tmp/changed.txt
+          printf '%s\n' atlas-delivery/payload-free-v15/chunk1.txt atlas-delivery/payload-free-v15/chunk2.txt atlas-delivery/payload-free-v15/manifest.json atlas-delivery/server.js | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+          git config user.name 'Atlas Product Executor'
+          git config user.email '71772355+ariazarifian@users.noreply.github.com'
+          git commit -m 'P6-E3: publish approved USCIS address-change V15 payload'
+          cand_commit=$(git rev-parse HEAD)
+          printf '%s' "$cand_commit" > .release-control/candidate_sha
+          node /tmp/build-free-payload.js rollback /tmp/rollback.pdf "$ROLLBACK_SHA" "$ROLLBACK_BYTES"
+          git add atlas-delivery/server.js atlas-delivery/payload-free-v15/chunk1.txt atlas-delivery/payload-free-v15/chunk2.txt atlas-delivery/payload-free-v15/manifest.json
+          test "$(git diff --cached --name-only | wc -l)" -eq 4
+          git commit -m 'P6-E3 rollback: restore prior canonical V15 under release key'
+          rollback_commit=$(git rev-parse HEAD)
+          printf '%s' "$rollback_commit" > .release-control/rollback_sha
+          git push origin "$rollback_commit:refs/heads/ops/atlas-p6e3-rollback-20260921"
+          printf '%s' "$WRAP_PUBLIC_KEY_B64" | base64 -d > /tmp/wrap-public.pem
+          openssl pkeyutl -encrypt -pubin -inkey /tmp/wrap-public.pem -in /tmp/free_key.bin -out .release-control/wrapped-key.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256
+          key_hash=$(sha256sum /tmp/free_key.bin | awk '{print $1}')
+          jq -n --arg expected_head "$EXPECTED_HEAD" --arg candidate_commit "$cand_commit" --arg rollback_commit "$rollback_commit" --arg key_sha256 "$key_hash" --arg candidate_sha "$CANDIDATE_SHA" --arg rollback_sha "$ROLLBACK_SHA" '{expected_head:$expected_head,candidate_commit:$candidate_commit,rollback_commit:$rollback_commit,key_sha256:$key_sha256,candidate_pdf_sha256:$candidate_sha,rollback_pdf_sha256:$rollback_sha}' > .release-control/release-meta.json
+          rm -f /tmp/free_key.bin /tmp/wrap-public.pem /tmp/candidate.pdf /tmp/rollback.pdf
+
+      - name: Upload release control artifact before promotion
+        uses: actions/upload-artifact@v4
+        with:
+          name: p6e3-release-control-${{ github.run_id }}
+          path: .release-control/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Promote candidate only after control artifact exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$PROD_BRANCH"
+          test "$(git rev-parse origin/$PROD_BRANCH)" = "$EXPECTED_HEAD"
+          cand_commit=$(cat .release-control/candidate_sha)
+          git cat-file -e "$cand_commit^{commit}"
+          test "$(git rev-parse "$cand_commit^")" = "$EXPECTED_HEAD"
+          git push origin "$cand_commit:refs/heads/$PROD_BRANCH"
