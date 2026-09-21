@@ -1,0 +1,45 @@
+name: Atlas PEX-D0 inspector diagnostic
+on:
+  push:
+    branches: [ops/atlas-pex-d0-thailand-evidence-20260921]
+    paths:
+      - .github/workflows/atlas-pex-d0-debug.yml
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Inspect Thailand rendered DOM in Chrome
+        run: |
+          npm install --prefix /tmp/pex-playwright --no-save playwright-core@1.55.0 >/dev/null
+          python3 -m http.server 4173 --directory atlas-exit >/tmp/atlas-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          cat >.pex-d0-debug.cjs <<'NODE'
+          const { chromium } = require('/tmp/pex-playwright/node_modules/playwright-core');
+          (async()=>{
+            const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome'});
+            const page=await browser.newPage({viewport:{width:1440,height:1000}});
+            await page.route('https://cloud.umami.is/**',r=>r.abort());
+            await page.route('https://gateway.umami.is/**',r=>r.abort());
+            await page.goto('http://127.0.0.1:4173/index.html',{waitUntil:'domcontentloaded'});
+            await page.waitForFunction(()=>document.querySelector('#resultCount')&&!document.querySelector('#resultCount').textContent.includes('Chargement'));
+            await page.locator('#countrySearch').fill('Thaïlande');
+            await page.locator('[data-country="THA"]').click();
+            const evidence=page.locator('[data-country-evidence="THA"]');
+            await evidence.waitFor({state:'attached'});
+            console.log('EVIDENCE_INNER_TEXT='+JSON.stringify(await evidence.innerText()));
+            console.log('EVIDENCE_TEXT_CONTENT='+JSON.stringify(await evidence.textContent()));
+            console.log('INSPECTOR_INNER_TEXT='+JSON.stringify(await page.locator('#inspectorContent').innerText()));
+            console.log('EVIDENCE_HTML='+JSON.stringify(await evidence.evaluate(el=>el.outerHTML)));
+            await browser.close();
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+          node .pex-d0-debug.cjs
