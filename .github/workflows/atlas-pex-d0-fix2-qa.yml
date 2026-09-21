@@ -1,0 +1,171 @@
+name: Atlas PEX-D0 FIX2 residence source QA
+on:
+  push:
+    branches: [ops/atlas-pex-d0-fix2-qa-20260921]
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Contract, source and scope gate
+        run: |
+          node --check atlas-exit/country-evidence.js
+          node --check atlas-exit/fiscal-finalize.js
+          node - <<'JS'
+          const assert=require('node:assert/strict');
+          const e=require('./atlas-exit/country-evidence.js');
+          assert.equal(e.schemaVersion,'country-evidence-v1');
+          assert.deepEqual(e.requiredFields,['tax_residency','pit','cit_business','consumption_tax','cost_context','residence_visa','healthcare','safety_context']);
+          assert.equal(e.validateCountry(e.countries.THA).ok,true);
+          assert.equal(Object.keys(e.countries.THA.fields).length,8);
+          for(const field of e.requiredFields){
+            const record=e.countries.THA.fields[field];
+            assert.equal(e.validateField(record).ok,true,field);
+            assert.equal(record.state,'READY',field);
+            assert.match(record.source.locator,/^https:\/\//,field);
+            assert.equal(record.verifiedOn,'2026-09-21',field);
+            assert.ok(record.jurisdiction && record.caveat && record.freshness.cadence,field);
+          }
+          const v=e.countries.THA.fields.residence_visa;
+          assert.equal(v.source.owner,'France Diplomatie');
+          assert.equal(v.source.locator,'https://www.diplomatie.gouv.fr/fr/information-par-pays/thailande/conseils-aux-voyageurs-entree-sejour');
+          assert.match(v.sourceVintage,/2026-09-15/);
+          assert.match(v.summary,/passeport français ordinaire/);
+          assert.match(v.summary,/30 jours/);
+          assert.match(v.summary,/séjour touristique/);
+          assert.equal(v.structure.origin,'France');
+          assert.equal(v.structure.passport,'ordinary');
+          assert.equal(v.structure.workPermission,false);
+          const h=e.countries.THA.fields.healthcare;
+          assert.equal(h.source.owner,'Thailand Ministry of Labour');
+          assert.equal(h.source.locator,'https://www.mol.go.th/en/news/labour-minister-explains-issues-progresses-with-adjusting-social-security-rights-and-setting-up-a-war-room-to-support-the-prime-minister-in-the-parliamentary-debate');
+          assert.equal(h.structure.universalForForeignResidents,false);
+          assert.equal(e.fixtures.AUS.healthcare.structure.statusDependent,true);
+          assert.deepEqual(e.fixtures.ESP.pit.structure.layers,['state','autonomous_community']);
+          assert.equal(e.fixtures.ESP.pit.structure.allInScalarForbidden,true);
+          assert.equal(e.fixtures.ESP.residence_visa.source.locator,'https://administracion.gob.es/tu-espacio-europeo/derechos-obligaciones/ciudadanos/residencia/obtencion-residencia/info-general');
+          assert.deepEqual(e.fixtures.JPN.tax_residency.structure.statusVariants,['non_resident','resident_non_permanent','resident_other']);
+          assert.ok(e.fixtures.JPN.pit.structure.layers.includes('local_inhabitant_tax'));
+          const held=e.safeDisplay(e.fixtures.HOLD_SAFE.cost_context);
+          assert.equal(held.available,false);
+          assert.equal(held.headline,'Donnée non retenue');
+          assert.ok(!JSON.stringify(held).includes('999 999'));
+          console.log('PEX-D0 FIX2 contract PASS');
+          JS
+          test "$(git diff --name-only 8eb016606487942d73a7eb59860e44688aba6440 -- atlas-exit | sort)" = "$(printf '%s\n' atlas-exit/atlas-country-evidence.css atlas-exit/country-evidence.js atlas-exit/fiscal-finalize.js | sort)"
+          git diff --exit-code 8eb016606487942d73a7eb59860e44688aba6440 -- atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-ui.css atlas-exit/atlas-ui-explorer.css atlas-exit/commerce-data.js atlas-exit/catalog.js
+          test "$(git diff --name-only df034880ee4973e703aaf55828c81f68d5f0a2f1 ee6c2c26805a1690064830aa168c1d4e9e3f541c -- atlas-exit)" = "atlas-exit/country-evidence.js"
+          test "$(git diff --numstat df034880ee4973e703aaf55828c81f68d5f0a2f1 ee6c2c26805a1690064830aa168c1d4e9e3f541c -- atlas-exit/country-evidence.js)" = $'1\t1\tatlas-exit/country-evidence.js'
+      - name: Install Chromium harness
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve candidate
+        run: |
+          python3 -m http.server 8000 > /tmp/pex-d0-fix2-http.log 2>&1 &
+          echo $! > /tmp/pex-d0-fix2-http.pid
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
+      - name: Real Chrome desktop + mobile regression
+        run: |
+          mkdir -p qa-artifacts
+          cat > /tmp/pex-d0-fix2-qa.cjs <<'JS'
+          const {chromium}=require('playwright');
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const base='http://127.0.0.1:8000/atlas-exit/index.html';
+          const visaUrl='https://www.diplomatie.gouv.fr/fr/information-par-pays/thailande/conseils-aux-voyageurs-entree-sejour';
+          const healthcareUrl='https://www.mol.go.th/en/news/labour-minister-explains-issues-progresses-with-adjusting-social-security-rights-and-setting-up-a-war-room-to-support-the-prime-minister-in-the-parliamentary-debate';
+          const report={candidate:process.env.GITHUB_SHA,productHead:'ee6c2c26805a1690064830aa168c1d4e9e3f541c',viewports:[],errors:[]};
+          (async()=>{
+            const browser=await chromium.launch({headless:true});
+            for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
+              const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}});
+              const page=await context.newPage();
+              const pageErrors=[];
+              page.on('pageerror',e=>pageErrors.push(String(e)));
+              page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource/i.test(m.text()))pageErrors.push('console: '+m.text())});
+              await page.goto(base,{waitUntil:'domcontentloaded'});
+              await page.waitForFunction(()=>document.querySelector('#resultCount')?.textContent&&!/Chargement/.test(document.querySelector('#resultCount').textContent),null,{timeout:15000});
+              assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true,'Manrope loaded');
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'no page horizontal overflow');
+              const beforeZoom=await page.locator('#zoomValue').textContent();
+              await page.locator('#zoomIn').click();
+              await page.waitForTimeout(120);
+              const afterZoom=await page.locator('#zoomValue').textContent();
+              assert.notEqual(afterZoom,beforeZoom,'map zoom works');
+              if(cfg.name==='mobile'){
+                await page.locator('#mobileFilters').click();
+                assert.equal(await page.locator('#mobileFilters').getAttribute('aria-expanded'),'true');
+              }
+              await page.locator('#countrySearch').fill('Thaïlande');
+              await page.waitForTimeout(80);
+              const thai=page.locator('[data-country="THA"]');
+              assert.equal(await thai.count(),1,'Thailand result exists');
+              await thai.click({force:true});
+              await page.waitForSelector('[data-atlas-evidence-panel][data-country="THA"]',{timeout:5000});
+              const panel=page.locator('[data-atlas-evidence-panel][data-country="THA"]');
+              assert.equal(await panel.locator('[data-evidence-field]').count(),8,'eight evidence rows');
+              const text=await panel.innerText();
+              assert.match(text,/180 jours ou plus/);
+              assert.match(text,/30 464 THB/);
+              assert.match(text,/30 jours · tourisme sans visa/);
+              assert.match(text,/Couverture selon le statut/);
+              assert.doesNotMatch(text,/Non documenté|pas encore documentés|À documenter/i);
+              assert.equal(await panel.locator('a.detail-source').count(),8,'source link per field');
+              const visaRow=panel.locator('[data-evidence-field="residence_visa"]');
+              await visaRow.locator('summary').click();
+              const visaHref=await visaRow.locator('a.detail-source').getAttribute('href');
+              const visaLabel=await visaRow.locator('a.detail-source').innerText();
+              assert.equal(visaHref,visaUrl);
+              assert.match(visaLabel,/France Diplomatie/);
+              const healthcareRow=panel.locator('[data-evidence-field="healthcare"]');
+              await healthcareRow.locator('summary').click();
+              const healthcareHref=await healthcareRow.locator('a.detail-source').getAttribute('href');
+              assert.equal(healthcareHref,healthcareUrl);
+              const states=await panel.locator('[data-evidence-state]').evaluateAll(rows=>rows.map(r=>r.getAttribute('data-evidence-state')));
+              assert.ok(states.every(x=>x==='READY'),'all Thailand records READY');
+              const inspector=page.locator('#inspector');
+              const box=await inspector.boundingBox();
+              assert.ok(box && box.x>=-1 && box.y>=-1 && box.x+box.width<=cfg.width+1 && box.y+box.height<=cfg.height+1,'inspector within viewport');
+              await page.locator('[data-save="THA"]').click();
+              assert.equal(await page.locator('#savedCount').textContent(),'1','comparator save works');
+              if(cfg.name==='desktop'){
+                await page.locator('[data-dismiss]').click();
+                await page.locator('#countrySearch').fill('Portugal');
+                await page.locator('[data-country="PRT"]').click({force:true});
+                await page.locator('[data-save="PRT"]').click();
+                assert.equal(await page.locator('#savedCount').textContent(),'2','second comparator save works');
+                await page.locator('#openCompare').click();
+                await page.locator('#compareDialog').waitFor({state:'visible'});
+                const compareText=await page.locator('#compareTable').innerText();
+                assert.match(compareText,/Thaïlande/);
+                assert.match(compareText,/Portugal/);
+                await page.locator('#compareDialog [data-close]').click();
+              }
+              await page.screenshot({path:`qa-artifacts/pex-d0-fix2-${cfg.name}.png`,fullPage:false});
+              report.viewports.push({name:cfg.name,width:cfg.width,height:cfg.height,zoomBefore:beforeZoom,zoomAfter:afterZoom,evidenceRows:8,sourceLinks:8,visaHref,visaLabel,healthcareHref,inspector:box});
+              report.errors.push(...pageErrors.map(x=>`${cfg.name}: ${x}`));
+              assert.deepEqual(pageErrors,[],'no unexpected browser errors');
+              await context.close();
+            }
+            await browser.close();
+            fs.writeFileSync('qa-artifacts/pex-d0-fix2-report.json',JSON.stringify(report,null,2));
+            console.log(JSON.stringify(report,null,2));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          NODE_PATH="$PWD/node_modules" node /tmp/pex-d0-fix2-qa.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-d0-fix2-residence-source-qa
+          path: qa-artifacts
+          if-no-files-found: error
