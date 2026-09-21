@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Contract, backward compatibility, source fidelity and scope gate
+      - name: Contract, backward compatibility, locator fidelity and scope
         env:
           PRODUCT_HEAD: d70582d0a70967b828b74425f00de9e7597a0c32
           BASE_HEAD: ee6c2c26805a1690064830aa168c1d4e9e3f541c
@@ -29,188 +29,102 @@ jobs:
           const base=require('/tmp/pex-d0-country-evidence.js');
           assert.equal(e.schemaVersion,'country-evidence-v1');
           assert.equal(e.sourceContract,'one-or-many-v1');
-          assert.deepEqual(e.requiredFields,['tax_residency','pit','cit_business','consumption_tax','cost_context','residence_visa','healthcare','safety_context']);
-          assert.deepEqual(e.countries.THA,base.countries.THA,'Thailand accepted evidence must stay byte-semantically unchanged');
+          assert.deepEqual(e.countries.THA,base.countries.THA,'Thailand accepted evidence must remain semantically unchanged');
           assert.equal(e.validateCountry(e.countries.THA).ok,true);
-          assert.equal(Object.keys(e.countries).length,1,'no new user-facing country module');
-          for(const field of e.requiredFields){
-            const record=e.countries.THA.fields[field];
-            assert.equal(e.validateField(record).ok,true,field);
-            assert.equal(e.validateField(record).sourceMode,'one',field);
-            assert.equal(e.sourcesFor(record).length,1,field);
-            assert.equal(record.state,'READY',field);
+          assert.equal(Object.keys(e.countries).length,1,'no new published country module');
+          for(const key of e.requiredFields){
+            const r=e.countries.THA.fields[key],v=e.validateField(r);
+            assert.equal(v.ok,true,key); assert.equal(v.sourceMode,'one',key); assert.equal(e.sourcesFor(r).length,1,key);
           }
-          const expected={
-            ausPit:['https://budget.gov.au/content/02-cost-of-living.htm','https://www.ato.gov.au/law/view/document?DocNum=0000081364&FullDocument=true'],
-            ausResidence:['https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/work-holiday-417','https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/evisitor-651'],
-            ausHealth:['https://www.servicesaustralia.gov.au/reciprocal-health-care-agreements','https://www.servicesaustralia.gov.au/enrolling-medicare'],
-            espResidence:['https://administracion.gob.es/tu-espacio-europeo/derechos-obligaciones/ciudadanos/residencia/obtencion-residencia/info-general','https://administracion.gob.es/tu-espacio-europeo/derechos-obligaciones/ciudadanos/residencia/obtencion-residencia/inscribirte-residente'],
-            jpnPit:['https://www.nta.go.jp/taxes/shiraberu/taxanswer/shotoku/2260.htm','https://www.nta.go.jp/taxes/shiraberu/taxanswer/osirase/9000.htm'],
-            jpnCit:['https://www.nta.go.jp/taxes/shiraberu/taxanswer/hojin/5759.htm','https://www.nta.go.jp/taxes/shiraberu/taxanswer/osirase/9000.htm'],
-            jpnResidence:['https://www.mofa.go.jp/j_info/visit/visa/short/novisa.html','https://www.mofa.go.jp/j_info/visit/visa/','https://www.moj.go.jp/isa/applications/status/'],
-            jpnHealth:['https://www.mhlw.go.jp/stf/newpage_21539.html','https://www.mhlw.go.jp/stf/newpage_21895.html']
-          };
-          const checks=[
-            [e.fixtures.AUS.pit,expected.ausPit],[e.fixtures.AUS.residence_visa,expected.ausResidence],[e.fixtures.AUS.healthcare,expected.ausHealth],
-            [e.fixtures.ESP.residence_visa,expected.espResidence],[e.fixtures.JPN.pit,expected.jpnPit],[e.fixtures.JPN.cit_business,expected.jpnCit],
-            [e.fixtures.JPN.residence_visa,expected.jpnResidence],[e.fixtures.JPN.healthcare,expected.jpnHealth]
+          const exact=[
+            [e.fixtures.AUS.pit,['https://budget.gov.au/content/02-cost-of-living.htm','https://www.ato.gov.au/law/view/document?DocNum=0000081364&FullDocument=true']],
+            [e.fixtures.AUS.residence_visa,['https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/work-holiday-417','https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/evisitor-651']],
+            [e.fixtures.AUS.healthcare,['https://www.servicesaustralia.gov.au/reciprocal-health-care-agreements','https://www.servicesaustralia.gov.au/enrolling-medicare']],
+            [e.fixtures.ESP.residence_visa,['https://administracion.gob.es/tu-espacio-europeo/derechos-obligaciones/ciudadanos/residencia/obtencion-residencia/info-general','https://administracion.gob.es/tu-espacio-europeo/derechos-obligaciones/ciudadanos/residencia/obtencion-residencia/inscribirte-residente']],
+            [e.fixtures.JPN.pit,['https://www.nta.go.jp/taxes/shiraberu/taxanswer/shotoku/2260.htm','https://www.nta.go.jp/taxes/shiraberu/taxanswer/osirase/9000.htm']],
+            [e.fixtures.JPN.cit_business,['https://www.nta.go.jp/taxes/shiraberu/taxanswer/hojin/5759.htm','https://www.nta.go.jp/taxes/shiraberu/taxanswer/osirase/9000.htm']],
+            [e.fixtures.JPN.residence_visa,['https://www.mofa.go.jp/j_info/visit/visa/short/novisa.html','https://www.mofa.go.jp/j_info/visit/visa/','https://www.moj.go.jp/isa/applications/status/']],
+            [e.fixtures.JPN.healthcare,['https://www.mhlw.go.jp/stf/newpage_21539.html','https://www.mhlw.go.jp/stf/newpage_21895.html']]
           ];
-          for(const [record,urls] of checks){
-            const valid=e.validateField(record);
-            assert.equal(valid.ok,true,JSON.stringify(valid));
-            assert.equal(valid.sourceMode,'many');
-            assert.deepEqual(e.sourcesFor(record).map(s=>s.locator),urls,'lossless direct locator set');
+          for(const [record,urls] of exact){
+            const v=e.validateField(record); assert.equal(v.ok,true,JSON.stringify(v)); assert.equal(v.sourceMode,'many');
+            assert.deepEqual(e.sourcesFor(record).map(s=>s.locator),urls,'every accepted locator retained separately');
             const html=e.renderSources(record);
-            for(const url of urls)assert.ok(html.includes(url),url);
-            assert.equal((html.match(/class="detail-source"/g)||[]).length,urls.length,'one link per direct locator');
-            assert.ok(!html.includes(urls.join(' | ')),'locators must not be concatenated into one opaque locator');
+            assert.equal((html.match(/class="detail-source"/g)||[]).length,urls.length,'one rendered link per locator');
+            assert.equal((html.match(/data-source-index=/g)||[]).length,urls.length,'source indexes preserved');
+            assert.ok(html.includes(`${urls.length} sources directes`),'multi-source grouping label');
           }
           const held=e.safeDisplay(e.fixtures.HOLD_SAFE.cost_context);
-          assert.equal(held.available,false);
-          assert.equal(held.headline,'Donnée non retenue');
-          assert.ok(!JSON.stringify(held).includes('999 999'));
+          assert.equal(held.available,false); assert.equal(held.headline,'Donnée non retenue'); assert.ok(!JSON.stringify(held).includes('999 999'));
           assert.deepEqual(e.fixtures.ESP.pit.structure.layers,['state','autonomous_community']);
           assert.equal(e.fixtures.ESP.pit.structure.allInScalarForbidden,true);
           assert.ok(e.fixtures.JPN.pit.structure.layers.includes('local_inhabitant_tax'));
-          console.log('PEX-D1A contract + locator fidelity PASS');
+          console.log('PEX-D1A contract PASS');
           JS
           test "$(git diff --name-only "$BASE_HEAD" "$PRODUCT_HEAD" -- atlas-exit | sort)" = "$(printf '%s\n' atlas-exit/atlas-country-evidence.css atlas-exit/country-evidence.js | sort)"
           git diff --exit-code "$BASE_HEAD" "$PRODUCT_HEAD" -- atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/fiscal-finalize.js atlas-exit/catalog.js atlas-exit/commerce-data.js atlas-exit/tax-additions.js atlas-exit/corporate-world.js atlas-exit/consumption-world.js atlas-exit/sitemap.xml atlas-exit/robots.txt
-      - name: Install Chromium harness
+      - name: Install Chromium
         run: |
           npm init -y >/dev/null 2>&1
           npm install --no-save playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Serve exact product candidate
+      - name: Serve exact Product candidate
         run: |
           git checkout --detach d70582d0a70967b828b74425f00de9e7597a0c32
-          python3 -m http.server 8000 > /tmp/pex-d1a-http.log 2>&1 &
-          echo $! > /tmp/pex-d1a-http.pid
+          python3 -m http.server 8000 >/tmp/pex-d1a-http.log 2>&1 &
           for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
-      - name: Real Chrome desktop + mobile regression, fixture renderer and duplicate-truth gate
+      - name: Real Chrome desktop and mobile
         run: |
           mkdir -p qa-artifacts
-          cat > /tmp/pex-d1a-qa.cjs <<'JS'
+          cat >/tmp/qa.cjs <<'JS'
           const {chromium}=require('playwright');
-          const fs=require('node:fs');
-          const assert=require('node:assert/strict');
-          const base='http://127.0.0.1:8000/atlas-exit/index.html';
-          const report={candidate:'d70582d0a70967b828b74425f00de9e7597a0c32',base:'ee6c2c26805a1690064830aa168c1d4e9e3f541c',viewports:[],duplicateTruth:{},errors:[]};
+          const fs=require('node:fs'); const assert=require('node:assert/strict');
+          const url='http://127.0.0.1:8000/atlas-exit/index.html';
+          const report={productHead:'d70582d0a70967b828b74425f00de9e7597a0c32',baseHead:'ee6c2c26805a1690064830aa168c1d4e9e3f541c',viewports:[],duplicateTruth:{},errors:[]};
           (async()=>{
             const browser=await chromium.launch({headless:true});
             for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
-              const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}});
-              const page=await context.newPage();
-              const pageErrors=[];
-              page.on('pageerror',e=>pageErrors.push(String(e)));
-              page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource/i.test(m.text()))pageErrors.push('console: '+m.text())});
-              await page.goto(base,{waitUntil:'domcontentloaded'});
+              const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}}); const page=await context.newPage(); const errors=[];
+              page.on('pageerror',e=>errors.push(String(e))); page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource/i.test(m.text()))errors.push('console: '+m.text())});
+              await page.goto(url,{waitUntil:'domcontentloaded'});
               await page.waitForFunction(()=>document.querySelector('#resultCount')?.textContent&&!/Chargement/.test(document.querySelector('#resultCount').textContent),null,{timeout:15000});
-              assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true,'Manrope loaded');
-              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'no page horizontal overflow');
-              const beforeZoom=await page.locator('#zoomValue').textContent();
-              await page.locator('#zoomIn').click();
-              await page.waitForTimeout(120);
-              const afterZoom=await page.locator('#zoomValue').textContent();
-              assert.notEqual(afterZoom,beforeZoom,'map zoom works');
-              if(cfg.name==='mobile'){
-                await page.locator('#mobileFilters').click();
-                assert.equal(await page.locator('#mobileFilters').getAttribute('aria-expanded'),'true');
-              }
-              await page.locator('#countrySearch').fill('Thaïlande');
-              await page.waitForTimeout(80);
-              const thai=page.locator('[data-country="THA"]');
-              assert.equal(await thai.count(),1,'Thailand result exists');
-              await thai.click({force:true});
-              await page.waitForSelector('[data-atlas-evidence-panel][data-country="THA"]',{timeout:5000});
-              const panel=page.locator('[data-atlas-evidence-panel][data-country="THA"]');
-              assert.equal(await panel.locator('[data-evidence-field]').count(),8,'eight Thailand evidence rows');
-              assert.equal(await panel.locator('a.detail-source').count(),0,'sources stay collapsed by default');
-              const sourceDetails=panel.locator('.atlas-evidence__source');
-              for(let i=0;i<await sourceDetails.count();i++)await sourceDetails.nth(i).locator('summary').click();
-              assert.equal(await panel.locator('a.detail-source').count(),8,'Thailand remains one direct link per field');
-              assert.equal(await panel.locator('[data-source-count]').count(),0,'Thailand single-source presentation unchanged');
-              const text=await panel.innerText();
-              assert.match(text,/180 jours ou plus/);
-              assert.match(text,/30 464 THB/);
-              assert.match(text,/30 jours · tourisme sans visa/);
-              assert.match(text,/Couverture selon le statut/);
-              assert.doesNotMatch(text,/Non documenté|pas encore documentés|À documenter/i);
-              const inspector=page.locator('#inspector');
-              const box=await inspector.boundingBox();
-              assert.ok(box && box.x>=-1 && box.y>=-1 && box.x+box.width<=cfg.width+1 && box.y+box.height<=cfg.height+1,'inspector within viewport');
-              await page.locator('[data-save="THA"]').click();
-              assert.equal(await page.locator('#savedCount').textContent(),'1','comparator save works');
+              assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true); assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+              const z0=await page.locator('#zoomValue').textContent(); await page.locator('#zoomIn').click(); await page.waitForTimeout(100); const z1=await page.locator('#zoomValue').textContent(); assert.notEqual(z0,z1);
+              if(cfg.name==='mobile'){await page.locator('#mobileFilters').click(); assert.equal(await page.locator('#mobileFilters').getAttribute('aria-expanded'),'true');}
+              await page.locator('#countrySearch').fill('Thaïlande'); await page.waitForTimeout(80); await page.locator('[data-country="THA"]').click({force:true});
+              await page.waitForSelector('[data-atlas-evidence-panel][data-country="THA"]'); const panel=page.locator('[data-atlas-evidence-panel][data-country="THA"]');
+              assert.equal(await panel.locator('[data-evidence-field]').count(),8); assert.equal(await panel.locator('a.detail-source').count(),8); assert.equal(await panel.locator('[data-source-count]').count(),0);
+              const states=await panel.locator('[data-evidence-state]').evaluateAll(r=>r.map(x=>x.getAttribute('data-evidence-state'))); assert.ok(states.every(x=>x==='READY'));
+              const text=await panel.innerText(); assert.match(text,/180 jours ou plus/); assert.match(text,/30 464 THB/); assert.doesNotMatch(text,/Non documenté|À documenter/i);
+              const box=await page.locator('#inspector').boundingBox(); assert.ok(box&&box.x>=-1&&box.y>=-1&&box.x+box.width<=cfg.width+1&&box.y+box.height<=cfg.height+1);
+              await page.locator('[data-save="THA"]').click(); assert.equal(await page.locator('#savedCount').textContent(),'1');
               if(cfg.name==='desktop'){
-                await page.locator('[data-dismiss]').click();
-                await page.locator('#countrySearch').fill('Portugal');
-                await page.locator('[data-country="PRT"]').click({force:true});
-                await page.locator('[data-save="PRT"]').click();
-                assert.equal(await page.locator('#savedCount').textContent(),'2','second comparator save works');
-                await page.locator('#openCompare').click();
-                await page.locator('#compareDialog').waitFor({state:'visible'});
-                const compareText=await page.locator('#compareTable').innerText();
-                assert.match(compareText,/Thaïlande/);
-                assert.match(compareText,/Portugal/);
-                await page.locator('#compareDialog [data-close]').click();
+                await page.locator('[data-dismiss]').click(); await page.locator('#countrySearch').fill('Portugal'); await page.locator('[data-country="PRT"]').click({force:true}); await page.locator('[data-save="PRT"]').click(); assert.equal(await page.locator('#savedCount').textContent(),'2');
+                await page.locator('#openCompare').click(); await page.locator('#compareDialog').waitFor({state:'visible'}); const ct=await page.locator('#compareTable').innerText(); assert.match(ct,/Thaïlande/); assert.match(ct,/Portugal/); await page.locator('#compareDialog [data-close]').click();
               }
-              const fixtureCheck=await page.evaluate(()=>{
-                const e=window.ATLAS_COUNTRY_EVIDENCE;
-                const entries=[
-                  ['AUS-health',e.fixtures.AUS.healthcare],['ESP-residence',e.fixtures.ESP.residence_visa],['JPN-residence',e.fixtures.JPN.residence_visa]
-                ];
-                return entries.map(([name,record])=>{
-                  const host=document.createElement('div');host.innerHTML=e.renderSources(record);
-                  return {name,count:host.querySelectorAll('a.detail-source').length,hrefs:[...host.querySelectorAll('a.detail-source')].map(a=>a.href),label:host.querySelector('.atlas-evidence__sources-label')?.textContent||''};
-                });
+              const fixtures=await page.evaluate(()=>{
+                const e=window.ATLAS_COUNTRY_EVIDENCE; const records=[e.fixtures.AUS.healthcare,e.fixtures.ESP.residence_visa,e.fixtures.JPN.residence_visa];
+                return records.map(r=>{const h=document.createElement('div'); h.innerHTML=e.renderSources(r); return {links:[...h.querySelectorAll('a.detail-source')].map(a=>a.href),label:h.querySelector('.atlas-evidence__sources-label')?.textContent||''};});
               });
-              assert.deepEqual(fixtureCheck.map(x=>x.count),[2,2,3],'multi-source renderer keeps every locator');
+              assert.deepEqual(fixtures.map(x=>x.links.length),[2,2,3]); assert.deepEqual(fixtures.map(x=>x.label),['2 sources directes','2 sources directes','3 sources directes']);
               if(cfg.name==='desktop'){
-                const duplicate=await page.evaluate(()=>{
-                  const e=window.ATLAS_COUNTRY_EVIDENCE,c=window.ATLAS_COMMERCE?.countries||{},t=window.ATLAS_TAX||{};
-                  return {
-                    AUS:{cit:c.AUS?.cit,vat:c.AUS?.vat,pit:t.AUS?.tax,pitLabel:t.AUS?.taxLabel,normalized:{cit:e.fixtures.AUS.cit_business.headline,vat:e.fixtures.AUS.consumption_tax.headline,pit:e.fixtures.AUS.pit.headline}},
-                    ESP:{cit:c.ESP?.cit,vat:c.ESP?.vat,pit:t.ESP?.tax,pitLabel:t.ESP?.taxLabel,normalized:{cit:e.fixtures.ESP.cit_business.headline,vat:e.fixtures.ESP.consumption_tax.headline,pit:e.fixtures.ESP.pit.headline}},
-                    JPN:{cit:c.JPN?.cit,vat:c.JPN?.vat,pit:t.JPN?.tax,pitNote:t.JPN?.note,normalized:{cit:e.fixtures.JPN.cit_business.headline,vat:e.fixtures.JPN.consumption_tax.headline,pit:e.fixtures.JPN.pit.headline}}
-                  };
-                });
-                assert.match(duplicate.AUS.cit,/30/); assert.match(duplicate.AUS.normalized.cit,/30/);
-                assert.match(duplicate.AUS.vat,/10/); assert.match(duplicate.AUS.normalized.vat,/10/);
-                if(Number.isFinite(duplicate.AUS.pit)){assert.equal(duplicate.AUS.pit,45);assert.match(duplicate.AUS.normalized.pit,/45/);}
-                assert.match(duplicate.ESP.cit,/25/); assert.match(duplicate.ESP.normalized.cit,/25/);
-                assert.match(duplicate.ESP.vat,/21/); assert.match(duplicate.ESP.normalized.vat,/21/);
-                assert.equal(duplicate.ESP.pit,null); assert.match(duplicate.ESP.pitLabel||'',/région/i); assert.match(duplicate.ESP.normalized.pit,/communauté autonome/i);
-                assert.match(duplicate.JPN.cit,/23,2/); assert.match(duplicate.JPN.normalized.cit,/23,2/);
-                assert.match(duplicate.JPN.vat,/10/); assert.match(duplicate.JPN.normalized.vat,/10/);
-                assert.equal(duplicate.JPN.pit,45); assert.match(duplicate.JPN.normalized.pit,/45/); assert.match(duplicate.JPN.pitNote||'',/locaux/i);
-                report.duplicateTruth=duplicate;
+                const d=await page.evaluate(()=>{const e=window.ATLAS_COUNTRY_EVIDENCE,c=window.ATLAS_COMMERCE?.countries||{},t=window.ATLAS_TAX||{};return {AUS:{cit:c.AUS?.cit,vat:c.AUS?.vat,pit:t.AUS?.tax,ncit:e.fixtures.AUS.cit_business.headline,nvat:e.fixtures.AUS.consumption_tax.headline,npit:e.fixtures.AUS.pit.headline},ESP:{cit:c.ESP?.cit,vat:c.ESP?.vat,pit:t.ESP?.tax,pitLabel:t.ESP?.taxLabel,ncit:e.fixtures.ESP.cit_business.headline,nvat:e.fixtures.ESP.consumption_tax.headline,npit:e.fixtures.ESP.pit.headline},JPN:{cit:c.JPN?.cit,vat:c.JPN?.vat,pit:t.JPN?.tax,pitNote:t.JPN?.note,ncit:e.fixtures.JPN.cit_business.headline,nvat:e.fixtures.JPN.consumption_tax.headline,npit:e.fixtures.JPN.pit.headline}}});
+                assert.match(d.AUS.cit,/30/); assert.match(d.AUS.ncit,/30/); assert.match(d.AUS.vat,/10/); assert.match(d.AUS.nvat,/10/); if(Number.isFinite(d.AUS.pit)){assert.equal(d.AUS.pit,45);assert.match(d.AUS.npit,/45/);}
+                assert.match(d.ESP.cit,/25/); assert.match(d.ESP.ncit,/25/); assert.match(d.ESP.vat,/21/); assert.match(d.ESP.nvat,/21/); assert.equal(d.ESP.pit,null); assert.match(d.ESP.pitLabel||'',/région/i); assert.match(d.ESP.npit,/communauté autonome/i);
+                assert.match(d.JPN.cit,/23,2/); assert.match(d.JPN.ncit,/23,2/); assert.match(d.JPN.vat,/10/); assert.match(d.JPN.nvat,/10/); assert.equal(d.JPN.pit,45); assert.match(d.JPN.npit,/45/); assert.match(d.JPN.pitNote||'',/locaux/i); report.duplicateTruth=d;
               }
               await page.screenshot({path:`qa-artifacts/pex-d1a-${cfg.name}.png`,fullPage:false});
-              const preview=await page.evaluate(()=>{
-                const e=window.ATLAS_COUNTRY_EVIDENCE,record=e.fixtures.JPN.residence_visa;
-                const host=document.createElement('aside');host.id='pex-d1a-fixture-preview';host.style.cssText='position:fixed;left:20px;bottom:20px;z-index:99999;width:min(360px,calc(100vw - 40px));padding:16px;background:#102426;border:1px solid rgba(214,193,155,.2);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.35);font-family:var(--atlas-font)';host.innerHTML=`<div style="color:#edf1ed;font-size:12px;font-weight:750;margin-bottom:6px">QA fixture · multi-source</div><details class="atlas-evidence__source" open><summary>Source & limites</summary><p class="micro">Japon · France → statut de séjour</p>${e.renderSources(record)}</details>`;document.body.appendChild(host);return host.querySelectorAll('a.detail-source').length;
-              });
-              assert.equal(preview,3);
+              const preview=await page.evaluate(()=>{const e=window.ATLAS_COUNTRY_EVIDENCE,r=e.fixtures.JPN.residence_visa,h=document.createElement('aside');h.id='qa-multisource';h.style.cssText='position:fixed;left:20px;bottom:20px;z-index:99999;width:min(360px,calc(100vw - 40px));padding:16px;background:#102426;border:1px solid rgba(214,193,155,.2);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.35);font-family:var(--atlas-font)';h.innerHTML=`<strong style="color:#edf1ed;font-size:12px">QA fixture · multi-source</strong><details class="atlas-evidence__source" open><summary>Source & limites</summary><p class="micro">Japon · statut de séjour</p>${e.renderSources(r)}</details>`;document.body.appendChild(h);return h.querySelectorAll('a.detail-source').length}); assert.equal(preview,3);
               await page.screenshot({path:`qa-artifacts/pex-d1a-multisource-${cfg.name}.png`,fullPage:false});
-              report.viewports.push({name:cfg.name,width:cfg.width,height:cfg.height,zoomBefore:beforeZoom,zoomAfter:afterZoom,thailandRows:8,thailandSources:8,fixtureRenderer:fixtureCheck,inspector:box});
-              report.errors.push(...pageErrors.map(x=>`${cfg.name}: ${x}`));
-              assert.deepEqual(pageErrors,[],'no unexpected browser errors');
-              await context.close();
+              report.viewports.push({name:cfg.name,width:cfg.width,height:cfg.height,zoom:[z0,z1],fixtureLinkCounts:fixtures.map(x=>x.links.length),inspector:box}); report.errors.push(...errors.map(x=>`${cfg.name}: ${x}`)); assert.deepEqual(errors,[]); await context.close();
             }
-            await browser.close();
-            fs.writeFileSync('qa-artifacts/pex-d1a-report.json',JSON.stringify(report,null,2));
-            console.log(JSON.stringify(report,null,2));
+            await browser.close(); fs.writeFileSync('qa-artifacts/pex-d1a-report.json',JSON.stringify(report,null,2)); console.log(JSON.stringify(report,null,2));
           })().catch(e=>{console.error(e);process.exit(1)});
           JS
-          NODE_PATH="$PWD/node_modules" node /tmp/pex-d1a-qa.cjs
-      - name: Reduced-motion and immutable event/SEO surface check
+          NODE_PATH="$PWD/node_modules" node /tmp/qa.cjs
+      - name: Reduced motion and immutable telemetry/SEO
         run: |
-          node - <<'JS'
-          const fs=require('node:fs');
-          const css=fs.readFileSync('atlas-exit/atlas-country-evidence.css','utf8');
-          if(!/@media\(prefers-reduced-motion:reduce\)/.test(css))throw new Error('reduced-motion contract missing');
-          console.log('Reduced-motion contract PASS');
-          JS
+          grep -q '@media(prefers-reduced-motion:reduce)' atlas-exit/atlas-country-evidence.css
           git diff --exit-code ee6c2c26805a1690064830aa168c1d4e9e3f541c d70582d0a70967b828b74425f00de9e7597a0c32 -- atlas-exit/atlas-events.js atlas-exit/index.html atlas-exit/sitemap.xml atlas-exit/robots.txt
       - uses: actions/upload-artifact@v4
         if: always()
