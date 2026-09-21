@@ -44,7 +44,7 @@ jobs:
           SERVER_PID=$!
           trap 'kill $SERVER_PID || true' EXIT
           sleep 1
-          cat >/tmp/pex-d0-qa.cjs <<'NODE'
+          cat >.pex-d0-qa.cjs <<'NODE'
           const { chromium } = require('playwright');
           const fs = require('fs');
           const results = {};
@@ -118,7 +118,7 @@ jobs:
             console.log(JSON.stringify(results,null,2));
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
-          node /tmp/pex-d0-qa.cjs
+          node .pex-d0-qa.cjs
       - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@v4
