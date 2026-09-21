@@ -74,7 +74,7 @@
           state:'READY',headline:'30 jours · tourisme sans visa',
           summary:'Depuis le 15 septembre 2026, un passeport français ordinaire peut bénéficier de l’exemption jusqu’à 30 jours pour un séjour touristique.',
           jurisdiction:'France → Thaïlande · passeport ordinaire',verifiedOn:'2026-09-21',sourceVintage:'Régime effectif 2026-09-15',
-          source:source('Thailand MFA + France Diplomatie','https://www.mfa.go.th/en/content/pb-summary-03092026-en','PRIMARY_IMMIGRATION/CONSULAR'),
+          source:source('France Diplomatie','https://www.diplomatie.gouv.fr/fr/information-par-pays/thailande/conseils-aux-voyageurs-entree-sejour','PRIMARY_IMMIGRATION/CONSULAR'),
           freshness:freshness('CURRENT','30D+EVENT','Modification entrée, exemption, travail ou résidence'),
           caveat:'Tourisme ne signifie ni droit de travailler ni droit de s’installer. Travail, long séjour et résidence relèvent de catégories distinctes et de conditions propres.',
           structure:{origin:'France',passport:'ordinary',shortStayPurpose:'tourism',workPermission:false,longStaySeparate:true}
