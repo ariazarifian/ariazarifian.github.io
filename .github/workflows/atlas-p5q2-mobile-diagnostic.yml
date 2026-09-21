@@ -1,0 +1,68 @@
+name: ATLAS P5Q2 Mobile Diagnostic
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5q2-accompagnement-qa-20260921
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+      - name: Diagnose 390px candidate
+        shell: bash
+        run: |
+          mkdir -p qa-mobile
+          python -m http.server 8765 --directory atlas-exit >/tmp/p5q2-mobile-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          cat > /tmp/mobile.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+          out=Path('qa-mobile')
+          data={}
+          with sync_playwright() as p:
+            b=p.chromium.launch(headless=True)
+            page=b.new_page(viewport={'width':390,'height':844})
+            page.route('https://cloud.umami.is/**', lambda route: route.fulfill(status=200,content_type='application/javascript',body=''))
+            page.route('https://gateway.umami.is/**', lambda route: route.fulfill(status=204,body=''))
+            errs=[]; cons=[]
+            page.on('pageerror',lambda e: errs.append(str(e)))
+            page.on('console',lambda m: cons.append({'type':m.type,'text':m.text}) if m.type=='error' else None)
+            r=page.goto('http://127.0.0.1:8765/accompagnement.html',wait_until='domcontentloaded',timeout=45000)
+            page.evaluate('document.fonts.ready'); page.wait_for_timeout(500)
+            data['status']=r.status if r else None
+            data['geometry']=page.evaluate("""() => ({vw:innerWidth,doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,height:document.documentElement.scrollHeight})""")
+            data['overflowers']=page.evaluate("""() => [...document.querySelectorAll('body *')].map(el=>{const r=el.getBoundingClientRect(),s=getComputedStyle(el);return {tag:el.tagName,cls:el.className||'',text:(el.textContent||'').trim().slice(0,80),left:r.left,right:r.right,width:r.width,display:s.display,position:s.position}}).filter(x=>x.width>0&&(x.left < -1 || x.right > innerWidth+1)).slice(0,80)""")
+            data['nav']=page.evaluate("""() => [...document.querySelectorAll('.atlas-shell__nav a')].map(a=>{const r=a.getBoundingClientRect(); return {text:a.textContent.trim(),x:r.x,right:r.right,w:r.width,h:r.height,font:parseFloat(getComputedStyle(a).fontSize)}})""")
+            data['shell']=page.evaluate("""() => {const rs=performance.getEntriesByType('resource').map(e=>e.name);return {bodyFont:getComputedStyle(document.body).fontFamily,h1Font:getComputedStyle(document.querySelector('h1')).fontFamily,fontStatus:document.fonts.status,manrope:document.fonts.check('16px Manrope'),manropeResources:rs.filter(x=>x.includes('Manrope-Variable.ttf')),surfaceCss:rs.filter(x=>x.includes('atlas-ui-accompagnement.css')),forbidden:rs.filter(x=>x.includes('fonts.googleapis.com')||x.includes('fonts.gstatic.com')),styles:document.querySelectorAll('style').length,inline:document.querySelectorAll('[style]').length}}""")
+            data['programs']=page.evaluate("""() => [...document.querySelectorAll('[data-program]')].map(x=>x.dataset.program)""")
+            data['prices']=page.evaluate("""() => [...document.querySelectorAll('.aq-service__price strong')].map(x=>x.textContent.trim())""")
+            data['csp']=page.locator('meta[http-equiv="Content-Security-Policy"]').get_attribute('content')
+            data['cover']=page.locator('.aq-brief__baseline img').evaluate('img=>({complete:img.complete,w:img.naturalWidth,h:img.naturalHeight})')
+            data['ctaRoadmap']=page.locator('a[href="parcours-usa.html"]').count()
+            data['ctaGuide']=page.locator('a[href="offres.html?countries=USA"]').count()
+            data['pageErrors']=errs; data['consoleErrors']=cons
+            page.screenshot(path=str(out/'mobile.png'),full_page=True)
+            b.close()
+          (out/'diagnostic.json').write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(data,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/mobile.py
+      - name: Upload diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5q2-mobile-diagnostic
+          path: qa-mobile
+          if-no-files-found: error
