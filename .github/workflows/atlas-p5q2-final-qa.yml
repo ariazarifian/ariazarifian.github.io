@@ -1,0 +1,176 @@
+name: ATLAS P5Q2 Final Candidate QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5q2-accompagnement-qa2-20260921
+
+permissions:
+  contents: read
+
+jobs:
+  final-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact bounded Product candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=a537da1e0ab9ec3c46503de0a21d6f42b27a59d7
+          CANDIDATE=1e43340ea81fc88fa1f6e709014c0a56948470f2
+          test "$(git hash-object atlas-exit/accompagnement.html)" = "d975c5ccbc4339dd625835573d9b9576505a3cf8"
+          test "$(git hash-object atlas-exit/atlas-ui-accompagnement.css)" = "91b8bbce65d70eca4e509d11498e6f0d7a69ec12"
+          test "$(git hash-object atlas-exit/atlas-ui.css)" = "a4af3e0236c6622a5488fa7836bca100922f382f"
+          test "$(git hash-object atlas-exit/programmes.js)" = "9e228ee55eb967eb890d6c4efa10ec7918a5553d"
+          git diff --name-only "$BASE" "$CANDIDATE" | sort > /tmp/changed.txt
+          printf '%s\n' atlas-exit/accompagnement.html atlas-exit/atlas-ui-accompagnement.css | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+          test "$(grep -o 'data-program=' atlas-exit/accompagnement.html | wc -l)" -eq 3
+          grep -q 'data-program="guided"' atlas-exit/accompagnement.html
+          grep -q 'data-program="coordination"' atlas-exit/accompagnement.html
+          grep -q 'data-program="signature"' atlas-exit/accompagnement.html
+          ! grep -q 'data-program="solo"' atlas-exit/accompagnement.html
+          grep -q 'atlas-ui-accompagnement.css?v=p5q2-1' atlas-exit/accompagnement.html
+          grep -q 'https://gateway.umami.is' atlas-exit/accompagnement.html
+          ! grep -q '<style' atlas-exit/accompagnement.html
+          ! grep -q ' style=' atlas-exit/accompagnement.html
+          ! grep -E -q 'fonts\.googleapis\.com|fonts\.gstatic\.com|Georgia|Times New Roman' atlas-exit/accompagnement.html
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Real-browser before/after and behavior gate
+        shell: bash
+        run: |
+          mkdir -p qa-artifacts
+          python -m http.server 8765 --directory atlas-exit >/tmp/p5q2-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          cat > /tmp/qa.py <<'PY'
+          import json, time, traceback
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          LIVE=f'https://atlas-expat.fr/accompagnement.html?qa=p5q2-final-{int(time.time())}'
+          CAND='http://127.0.0.1:8765/accompagnement.html'
+          out=Path('qa-artifacts')
+          report={
+            'candidate_commit':'1e43340ea81fc88fa1f6e709014c0a56948470f2',
+            'candidate_base':'a537da1e0ab9ec3c46503de0a21d6f42b27a59d7',
+            'html_blob':'d975c5ccbc4339dd625835573d9b9576505a3cf8',
+            'css_blob':'91b8bbce65d70eca4e509d11498e6f0d7a69ec12',
+            'shared_css_blob':'a4af3e0236c6622a5488fa7836bca100922f382f',
+            'programmes_js_blob':'9e228ee55eb967eb890d6c4efa10ec7918a5553d',
+            'before':{},'after':{}
+          }
+
+          def stub(page):
+            page.route('https://cloud.umami.is/**',lambda r:r.fulfill(status=200,content_type='application/javascript',body=''))
+            page.route('https://gateway.umami.is/**',lambda r:r.fulfill(status=204,body=''))
+
+          def overflow(page,w):
+            g=page.evaluate("""() => ({doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,vw:innerWidth})""")
+            assert g['doc']<=w+1 and g['body']<=w+1,g
+            return g
+
+          def live_capture(browser,label,vp):
+            page=browser.new_page(viewport=vp); stub(page)
+            r=page.goto(LIVE,wait_until='domcontentloaded',timeout=45000)
+            assert r and r.ok,(label,r.status if r else None)
+            page.evaluate('document.fonts.ready'); page.wait_for_timeout(500)
+            g=overflow(page,vp['width'])
+            page.screenshot(path=str(out/f'before-{label}.png'),full_page=True)
+            info={'status':r.status,'overflow':g,'height':page.evaluate('document.documentElement.scrollHeight'),'h1':page.locator('h1').inner_text()}
+            page.close(); return info
+
+          def candidate(browser,label,vp):
+            page=browser.new_page(viewport=vp,reduced_motion='no-preference'); stub(page)
+            errors=[]; console=[]
+            page.on('pageerror',lambda e:errors.append(str(e)))
+            page.on('console',lambda m:console.append(m.text) if m.type=='error' else None)
+            r=page.goto(CAND,wait_until='domcontentloaded',timeout=45000)
+            assert r and r.ok,(label,r.status if r else None)
+            page.evaluate('document.fonts.ready'); page.wait_for_timeout(400)
+            g=overflow(page,vp['width'])
+            shell=page.evaluate("""() => {const rs=performance.getEntriesByType('resource').map(e=>e.name); return {
+              bodyFont:getComputedStyle(document.body).fontFamily,h1Font:getComputedStyle(document.querySelector('h1')).fontFamily,
+              fontStatus:document.fonts.status,manropeReady:document.fonts.check('16px Manrope'),
+              manrope:rs.filter(x=>x.includes('Manrope-Variable.ttf')),
+              surfaceCss:rs.filter(x=>x.includes('atlas-ui-accompagnement.css')),
+              forbidden:rs.filter(x=>x.includes('fonts.googleapis.com')||x.includes('fonts.gstatic.com')),
+              styleBlocks:document.querySelectorAll('style').length,inlineStyles:document.querySelectorAll('[style]').length};}""")
+            assert shell['fontStatus']=='loaded' and shell['manropeReady'] and shell['manrope'],shell
+            assert 'Manrope' in shell['bodyFont'] and 'Manrope' in shell['h1Font'],shell
+            assert shell['surfaceCss'] and not shell['forbidden'] and shell['styleBlocks']==0 and shell['inlineStyles']==0,shell
+            nav=page.locator('.atlas-shell__nav a'); assert nav.count()==4
+            navinfo=[]
+            for i in range(4):
+              a=nav.nth(i); box=a.bounding_box(); fs=a.evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')
+              assert box and box['x']>=-1 and box['x']+box['width']<=vp['width']+1,(label,box)
+              if label=='mobile': assert fs>=13 and box['height']>=42,(a.inner_text(),fs,box)
+              navinfo.append({'text':a.inner_text(),'font':fs,'height':box['height'],'current':a.get_attribute('aria-current')})
+            assert sum(1 for x in navinfo if x['current']=='page')==1
+            assert page.locator('[data-program]').count()==3 and page.locator('[data-program="solo"]').count()==0
+            assert page.locator('.aq-service').count()==3
+            prices=page.locator('.aq-service__price strong').all_inner_texts(); assert prices==['990 €','2 500 €','5 000 €'],prices
+            cover=page.locator('.aq-brief__baseline img').evaluate('img=>({complete:img.complete,w:img.naturalWidth,h:img.naturalHeight})')
+            assert cover['complete'] and cover['w']>0 and cover['h']>0,cover
+            csp=page.locator('meta[http-equiv="Content-Security-Policy"]').get_attribute('content')
+            assert 'https://gateway.umami.is' in csp and "form-action 'none'" in csp,csp
+            page.screenshot(path=str(out/f'after-{label}-page.png'),full_page=True)
+            expected=[('guided','Projet USA'),('coordination','Coordination'),('signature','Signature')]
+            modal=[]
+            for key,title in expected:
+              btn=page.locator(f'[data-program="{key}"]'); btn.scroll_into_view_if_needed(); btn.click(); page.wait_for_timeout(90)
+              dlg=page.locator('#programmeDialog'); assert dlg.evaluate('d=>d.open')
+              assert page.locator('#programmeTitle').inner_text()==title
+              assert len(page.locator('#programmeContent').inner_text().strip())>20
+              assert page.locator('#programmeContact').get_attribute('href')=='start.html'
+              overflow(page,vp['width'])
+              page.screenshot(path=str(out/f'after-{label}-{key}-modal.png'),full_page=False)
+              page.locator('#closeProgramme').click(); page.wait_for_timeout(50); assert not dlg.evaluate('d=>d.open')
+              btn.click(); page.wait_for_timeout(50); page.keyboard.press('Escape'); page.wait_for_timeout(50); assert not dlg.evaluate('d=>d.open')
+              modal.append({'program':key,'title':title,'close':True,'escape':True})
+            assert not errors,errors
+            assert not console,console
+            reduced=browser.new_page(viewport=vp,reduced_motion='reduce'); stub(reduced)
+            reduced.goto(CAND,wait_until='domcontentloaded',timeout=45000); reduced.wait_for_timeout(120)
+            d=reduced.locator('.aq-service').first.evaluate('el=>getComputedStyle(el).transitionDuration')
+            assert d in ('0s','0.00001s','0.01ms','1e-05s'),d
+            reduced.close()
+            final=overflow(page,vp['width'])
+            info={'status':r.status,'overflow':g,'finalOverflow':final,'shell':shell,'nav':navinfo,'prices':prices,'cover':cover,'modals':modal,'cspGateway':True,'reducedMotion':d,'height':page.evaluate('document.documentElement.scrollHeight')}
+            page.close(); return info
+
+          try:
+            with sync_playwright() as p:
+              b=p.chromium.launch(headless=True)
+              for label,vp in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+                report['before'][label]=live_capture(b,label,vp)
+                report['after'][label]=candidate(b,label,vp)
+              b.close()
+            report['status']='PASS'
+          except Exception as e:
+            report['status']='FAIL'; report['error']=repr(e); report['traceback']=traceback.format_exc()
+            Path('qa-artifacts/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+            raise
+          Path('qa-artifacts/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/qa.py
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5q2-final-before-after
+          path: qa-artifacts
+          if-no-files-found: error
