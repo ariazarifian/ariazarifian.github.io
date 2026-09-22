@@ -13,7 +13,9 @@
     andorraIGI:{name:'Govern d’Andorra · IGI, taux général 4,5 %',url:'https://www.govern.ad/ca/l/4191561'},
     russiaVAT2026:{name:'FNS Russie · TVA 22 % à compter de 2026',url:'https://www.nalog.gov.ru/new2026/'},
     japanCorpNTA:{name:'NTA Japon · taux de l’impôt sur les sociétés',url:'https://www.nta.go.jp/taxes/shiraberu/taxanswer/hojin/5759.htm'},
-    japanConsumptionNTA:{name:'NTA Japon · taxe à la consommation',url:'https://www.nta.go.jp/taxes/shiraberu/taxanswer/shohi/6303.htm'}
+    japanConsumptionNTA:{name:'NTA Japon · taxe à la consommation',url:'https://www.nta.go.jp/taxes/shiraberu/taxanswer/shohi/6303.htm'},
+    switzerlandCorpFTA:{name:'AFC Suisse · système fiscal · sociétés',url:'https://www.estv.admin.ch/dam/en/sd-web/i8eiHb5Gk0xl/ch-steuersystem.pdf'},
+    switzerlandVatFTA:{name:'AFC Suisse · taux de TVA',url:'https://www.estv.admin.ch/en/vat-rates-switzerland'}
   });
 
   function merge(id,row){
@@ -72,6 +74,17 @@
     checked:'NTA · vérifié 21.09.2026'
   });
 
+  // PEX-D1E legacy reconciliation for Switzerland's company/VAT cards.
+  // 8.5% is only the federal net-profit layer; cantonal/communal taxes remain separate.
+  merge('CHE',{
+    cit:'8,5 % fédéral',
+    citScope:'Bénéfice net · impôts cantonaux/communaux en plus · aucun taux tout compris',
+    vat:'8,1 % standard',
+    vatScope:'TVA · 2,6 % réduit · 3,8 % hébergement',
+    sources:['switzerlandCorpFTA','switzerlandVatFTA'],
+    checked:'AFC · vérifié 21.09.2026'
+  });
+
   // Territories where a national company-tax number would be misleading.
   const contextual={
     ATF:{cit:'Hors comparaison',citScope:'Territoire non résidentiel standard'},
@@ -127,6 +140,20 @@
   };
   if(window.ATLAS_TAX?.JPN) Object.assign(window.ATLAS_TAX.JPN,japanLayeredPit);
   if(window.ATLAS_CATALOG?.JPN) Object.assign(window.ATLAS_CATALOG.JPN,japanLayeredPit);
+
+  // PEX-D1E Switzerland reconciliation: tax remains intentionally non-scalar.
+  // Federal, cantonal and communal PIT layers must not be collapsed into one rate.
+  const switzerlandLayeredPit={
+    tax:null,
+    taxLabel:'Fédéral + canton + commune',
+    taxYear:'AFC · vérifié 21.09.2026',
+    scope:'Impôt sur le revenu · trois niveaux distincts',
+    note:'La charge dépend du canton, de la commune et de la situation personnelle. Aucun taux suisse tout compris n’est calculé ; la réforme de l’imposition individuelle prévue pour 2032 n’est pas effective en 2026.',
+    src:null,
+    taxKind:'current-reference'
+  };
+  if(window.ATLAS_TAX?.CHE) Object.assign(window.ATLAS_TAX.CHE,switzerlandLayeredPit);
+  if(window.ATLAS_CATALOG?.CHE) Object.assign(window.ATLAS_CATALOG.CHE,switzerlandLayeredPit);
 
   // Lightweight runtime audit. It runs after script.js exposes AtlasExplorer and
   // records actual visible gaps; it does not alter any fiscal data.
@@ -205,6 +232,25 @@
     set('Sources',sourceHtml);
   }
 
+  function reconcileSwitzerlandComparator(){
+    const core=window.ATLAS_COUNTRY_EVIDENCE;
+    const che=window.ATLAS_COUNTRY_EVIDENCE_SWITZERLAND?.country;
+    const table=document.querySelector('#compareTable table');
+    if(!core||!che||!table)return;
+    const headers=[...table.querySelectorAll('thead th')];
+    const cheIndex=headers.findIndex(th=>/Suisse/i.test(th.textContent||''));
+    if(cheIndex<1)return;
+    const rowByLabel=label=>[...table.querySelectorAll('tbody tr')].find(tr=>tr.querySelector('td')?.textContent.trim()===label);
+    const cell=label=>rowByLabel(label)?.querySelectorAll('td')?.[cheIndex]||null;
+    const set=(label,html)=>{const target=cell(label);if(target&&!(target.dataset.atlasNormalized==='CHE'&&target.innerHTML===html)){target.innerHTML=html;target.dataset.atlasNormalized='CHE';}};
+    const sourceHtml=['tax_residency','pit','cit_business','consumption_tax'].map(k=>core.renderSources(che.fields[k])).join('');
+    set('Revenu','<span class="val">Fédéral + canton + commune</span><small>Aucun taux suisse tout compris · canton, commune et situation personnelle déterminants</small>');
+    set('Sociétés','<span class="val">8,5 % fédéral</span><small>Impôts cantonaux/communaux en plus · localisation déterminante</small>');
+    set('TVA / consommation','<span class="val">8,1 % standard</span><small>2,6 % réduit · 3,8 % hébergement</small>');
+    set('Taxes particulières','<small>Résidence fiscale, libre circulation, impôts cantonaux/communaux et assurance maladie restent des objets distincts ; aucune addition automatique.</small>');
+    set('Sources',sourceHtml);
+  }
+
   function bindAustraliaComparator(){
     const host=document.querySelector('#compareTable');
     if(!host||host.dataset.atlasAusComparatorBound==='true')return;
@@ -229,15 +275,35 @@
     new MutationObserver(()=>queueMicrotask(reconcileJapanComparator)).observe(host,{childList:true,subtree:true});
   }
 
+  function bindSwitzerlandComparator(){
+    const host=document.querySelector('#compareTable');
+    if(!host||host.dataset.atlasCheComparatorBound==='true')return;
+    host.dataset.atlasCheComparatorBound='true';
+    reconcileSwitzerlandComparator();
+    new MutationObserver(()=>queueMicrotask(reconcileSwitzerlandComparator)).observe(host,{childList:true,subtree:true});
+  }
+
+  function loadSwitzerlandEvidence(){
+    if(window.ATLAS_COUNTRY_EVIDENCE_SWITZERLAND){bindSwitzerlandComparator();reconcileSwitzerlandComparator();return;}
+    const existing=document.querySelector('[data-atlas-country-evidence-switzerland]');
+    if(existing){existing.addEventListener('load',()=>{bindSwitzerlandComparator();reconcileSwitzerlandComparator();},{once:true});return;}
+    const switzerland=document.createElement('script');
+    switzerland.src='country-evidence-switzerland.js?v=pex-d1e-1';
+    switzerland.async=false;
+    switzerland.dataset.atlasCountryEvidenceSwitzerland='runtime';
+    switzerland.addEventListener('load',()=>{bindSwitzerlandComparator();reconcileSwitzerlandComparator();},{once:true});
+    document.head.append(switzerland);
+  }
+
   function loadJapanEvidence(){
-    if(window.ATLAS_COUNTRY_EVIDENCE_JAPAN){bindJapanComparator();reconcileJapanComparator();return;}
+    if(window.ATLAS_COUNTRY_EVIDENCE_JAPAN){bindJapanComparator();reconcileJapanComparator();loadSwitzerlandEvidence();return;}
     const existing=document.querySelector('[data-atlas-country-evidence-japan]');
-    if(existing){existing.addEventListener('load',()=>{bindJapanComparator();reconcileJapanComparator();},{once:true});return;}
+    if(existing){existing.addEventListener('load',()=>{bindJapanComparator();reconcileJapanComparator();loadSwitzerlandEvidence();},{once:true});return;}
     const japan=document.createElement('script');
     japan.src='country-evidence-japan.js?v=pex-d1d-1';
     japan.async=false;
     japan.dataset.atlasCountryEvidenceJapan='runtime';
-    japan.addEventListener('load',()=>{bindJapanComparator();reconcileJapanComparator();},{once:true});
+    japan.addEventListener('load',()=>{bindJapanComparator();reconcileJapanComparator();loadSwitzerlandEvidence();},{once:true});
     document.head.append(japan);
   }
 
@@ -253,7 +319,7 @@
     document.head.append(spain);
   }
 
-  // PEX-D1B/D1C/D1D: keep the D1A evidence contract isolated, then load visible
+  // PEX-D1B/D1C/D1D/D1E: keep the D1A evidence contract isolated, then load visible
   // country modules sequentially so each immutable merge sees the prior registry.
   function loadAustraliaEvidence(){
     if(window.ATLAS_COUNTRY_EVIDENCE_AUSTRALIA){bindAustraliaComparator();reconcileAustraliaComparator();loadSpainEvidence();return;}
@@ -283,5 +349,5 @@
   }
   loadCountryEvidence();
 
-  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d1d-1',australiaLegacyPitReconciled:true,australiaComparatorReconciled:true,spainLegacyPitReconciled:true,spainComparatorReconciled:true,japanLegacyTaxReconciled:true,japanComparatorReconciled:true};
+  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d1e-1',australiaLegacyPitReconciled:true,australiaComparatorReconciled:true,spainLegacyPitReconciled:true,spainComparatorReconciled:true,japanLegacyTaxReconciled:true,japanComparatorReconciled:true,switzerlandLegacyTaxReconciled:true,switzerlandComparatorReconciled:true};
 })();
