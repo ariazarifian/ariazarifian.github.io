@@ -34,7 +34,7 @@
     }),
     fields:freeze({
       tax_residency:record({
-        state:'READY_WITH_CAVEAT',
+        state:'READY_FOR_PRODUCT',
         headline:'Domicile ou séjour qualifiant · 30 j. avec activité / 90 j. sans',
         claim:'Current Swiss Federal Tax Administration material grounds Swiss individual tax liability in domicile or qualifying stay. The official system material identifies a 30-day stay threshold when gainfully employed and a 90-day threshold when not gainfully employed; treaty rules can still affect the final outcome.',
         summary:'La logique fiscale suisse repose sur le domicile ou un séjour qualifiant. Le matériel actuel de l’AFC distingue notamment un seuil de 30 jours avec activité lucrative et de 90 jours sans activité lucrative ; une convention fiscale peut encore modifier l’issue.',
@@ -48,7 +48,7 @@
         structure:freeze({tests:['domicile','qualifying_stay'],stayThresholdDaysGainfullyEmployed:30,stayThresholdDaysNotGainfullyEmployed:90,day183ShortcutForbidden:true,treatyCanAlterOutcome:true,immigrationStatusIsNotTaxResidence:true})
       }),
       pit:record({
-        state:'READY_WITH_CAVEAT',
+        state:'READY_FOR_PRODUCT',
         headline:'Fédéral + canton + commune · aucun taux suisse unique',
         claim:'Swiss personal income taxation is layered across federal, cantonal and communal levels, so effective burden varies materially by canton, commune and personal circumstances. The 2026 individual-taxation reform is not in force in 2026; the Federal Council set implementation for 2032.',
         summary:'L’impôt sur le revenu se compose de couches fédérale, cantonale et communale. Le canton, la commune et la situation personnelle changent matériellement le résultat ; la réforme de l’imposition individuelle approuvée en 2026 n’entre en vigueur qu’en 2032.',
@@ -66,7 +66,7 @@
         structure:freeze({layers:['federal','cantonal','communal'],allInScalarForbidden:true,cantonSensitive:true,communeSensitive:true,personalSituationSensitive:true,knownFutureReform:freeze({topic:'individual_taxation',implementationYear:2032,effectiveIn2026:false})})
       }),
       cit_business:record({
-        state:'READY_WITH_CAVEAT',
+        state:'READY_FOR_PRODUCT',
         headline:'8,5 % fédéral · cantonal/communal en plus',
         claim:'Swiss federal direct tax on corporate net profit is 8.5% at the federal layer. Cantonal and communal profit/capital taxes add and vary by location, so 8.5% is not an all-in Swiss company-tax rate.',
         summary:'L’impôt fédéral direct sur le bénéfice net des sociétés est de 8,5 %. Des impôts cantonaux et communaux sur le bénéfice et/ou le capital s’ajoutent selon la localisation ; 8,5 % n’est donc pas un taux société suisse tout compris.',
@@ -80,7 +80,7 @@
         structure:freeze({federalNetProfitRate:8.5,unit:'percent',cantonalCommunalTaxesAdditional:true,locationSensitive:true,allInScalarForbidden:true})
       }),
       consumption_tax:record({
-        state:'READY_WITH_CAVEAT',
+        state:'READY_FOR_PRODUCT',
         headline:'8,1 % standard · 2,6 % réduit · 3,8 % hébergement',
         claim:'Current Swiss VAT rates are 8.1% standard, 2.6% reduced and 3.8% for accommodation services, with the applicable rate depending on the supply.',
         summary:'La TVA suisse applique actuellement 8,1 % au taux standard, 2,6 % au taux réduit et 3,8 % aux prestations d’hébergement. Le taux applicable dépend de l’opération.',
@@ -108,7 +108,7 @@
         structure:freeze({survey:'Household Budget Survey',year:2023,population:'private_households',monthlyConsumptionExpenditureCHF:5049,monthlyDisposableIncomeCHF:7186,averageHouseholdSize:2.07,singlePersonBudget:false,expatBudget:false,cityBudget:false,cantonBudget:false,scalarScoreForbidden:true})
       }),
       residence_visa:record({
-        state:'READY_WITH_CAVEAT',
+        state:'READY_FOR_PRODUCT',
         headline:'Emploi > 3 mois · inscription sous 14 jours et avant travail',
         claim:'For a French/EU citizen taking employment in Switzerland for more than three months, SEM guidance requires registration with the commune within 14 days of arrival and before starting work; employment up to three months generally follows notification rather than a residence permit. Self-employment, non-working residence and family cases differ.',
         summary:'Pour un Français/citoyen UE employé plus de trois mois en Suisse, le SEM prévoit une inscription auprès de la commune dans les 14 jours suivant l’arrivée et avant de commencer le travail. Jusqu’à trois mois, l’emploi relève généralement d’une notification plutôt que d’un permis de séjour.',
@@ -125,7 +125,7 @@
         structure:freeze({origin:'France/EU',framework:'EU_EFTA_free_movement',employmentOverMonths:3,communeRegistrationWithinDays:14,registrationBeforeStartingWork:true,employmentUpToMonthsGenerallyNotification:3,permitDependsOnEmploymentDuration:true,selfEmploymentDifferent:true,nonWorkingDifferent:true,familyCasesDifferent:true})
       }),
       healthcare:record({
-        state:'READY_WITH_CAVEAT',
+        state:'READY_FOR_PRODUCT',
         headline:'Assurance obligatoire généralement sous 3 mois · exceptions',
         claim:'People settling in Switzerland generally need to arrange compulsory Swiss health insurance within three months, subject to statutory exemptions and cross-border-worker rules. The applicable arrangement is not identical for every foreign resident or commuter.',
         summary:'Les personnes qui s’installent en Suisse doivent généralement organiser l’assurance maladie obligatoire dans les trois mois. Des exemptions et règles spécifiques existent, notamment pour les travailleurs frontaliers.',
