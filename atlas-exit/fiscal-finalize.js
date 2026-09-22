@@ -84,6 +84,21 @@
   if(window.ATLAS_TAX?.AUS) Object.assign(window.ATLAS_TAX.AUS,australiaResidentPit);
   if(window.ATLAS_CATALOG?.AUS) Object.assign(window.ATLAS_CATALOG.AUS,australiaResidentPit);
 
+  // PEX-D1C Spain reconciliation: keep the map/filter explicitly non-scalar while
+  // replacing the stale OECD 48.58% context with the accepted layered IRPF truth.
+  // 24.5% is only the top state component and must never become an all-in Spain rate.
+  const spainLayeredPit={
+    tax:null,
+    taxLabel:'État + communauté',
+    taxYear:'IRPF 2025 · manuel publié 27.03.2026',
+    scope:'IRPF · barème étatique + barème autonome',
+    note:'La composante générale de l’État va de 9,5 % à 24,5 % et un barème propre à la communauté autonome s’ajoute. 24,5 % n’est pas un taux supérieur Espagne tout compris.',
+    src:null,
+    taxKind:'current-reference'
+  };
+  if(window.ATLAS_TAX?.ESP) Object.assign(window.ATLAS_TAX.ESP,spainLayeredPit);
+  if(window.ATLAS_CATALOG?.ESP) Object.assign(window.ATLAS_CATALOG.ESP,spainLayeredPit);
+
   // Lightweight runtime audit. It runs after script.js exposes AtlasExplorer and
   // records actual visible gaps; it does not alter any fiscal data.
   function audit(){
@@ -123,22 +138,64 @@
     set('Sources',sourceHtml);
   }
 
+  function reconcileSpainComparator(){
+    const core=window.ATLAS_COUNTRY_EVIDENCE;
+    const esp=window.ATLAS_COUNTRY_EVIDENCE_SPAIN?.country;
+    const table=document.querySelector('#compareTable table');
+    if(!core||!esp||!table)return;
+    const headers=[...table.querySelectorAll('thead th')];
+    const espIndex=headers.findIndex(th=>/Espagne/i.test(th.textContent||''));
+    if(espIndex<1)return;
+    const rowByLabel=label=>[...table.querySelectorAll('tbody tr')].find(tr=>tr.querySelector('td')?.textContent.trim()===label);
+    const cell=label=>rowByLabel(label)?.querySelectorAll('td')?.[espIndex]||null;
+    const set=(label,html)=>{const target=cell(label);if(target&&!(target.dataset.atlasNormalized==='ESP'&&target.innerHTML===html)){target.innerHTML=html;target.dataset.atlasNormalized='ESP';}};
+    const sourceHtml=['tax_residency','pit','cit_business','consumption_tax'].map(k=>core.renderSources(esp.fields[k])).join('');
+    set('Revenu','<span class="val">État + communauté autonome</span><small>Composante étatique 9,5–24,5 % · barème autonome additionnel variable · aucun taux national tout compris</small>');
+    set('Sociétés','<span class="val">25 % général</span><small>2026 : micro &lt; 1 M€ — 19 % sur les premiers 50 000 € puis 21 % ; certaines petites entités éligibles 23 %</small>');
+    set('TVA / consommation','<span class="val">21 % standard</span><small>10 % / 4 % et certaines catégories à 0 % selon l’opération</small>');
+    set('Taxes particulières','<small>Résidence fiscale, séjour UE, couverture santé et assiette d’impôt restent des objets distincts ; aucune addition ou équivalence automatique.</small>');
+    set('Sources',sourceHtml);
+  }
+
   function bindAustraliaComparator(){
     const host=document.querySelector('#compareTable');
-    if(!host)return;
+    if(!host||host.dataset.atlasAusComparatorBound==='true')return;
+    host.dataset.atlasAusComparatorBound='true';
     reconcileAustraliaComparator();
     new MutationObserver(()=>queueMicrotask(reconcileAustraliaComparator)).observe(host,{childList:true,subtree:true});
   }
 
-  // PEX-D1B: keep the PEX-D1A evidence contract isolated, then load the first
-  // additional published country module only after that contract is available.
+  function bindSpainComparator(){
+    const host=document.querySelector('#compareTable');
+    if(!host||host.dataset.atlasEspComparatorBound==='true')return;
+    host.dataset.atlasEspComparatorBound='true';
+    reconcileSpainComparator();
+    new MutationObserver(()=>queueMicrotask(reconcileSpainComparator)).observe(host,{childList:true,subtree:true});
+  }
+
+  function loadSpainEvidence(){
+    if(window.ATLAS_COUNTRY_EVIDENCE_SPAIN){bindSpainComparator();reconcileSpainComparator();return;}
+    const existing=document.querySelector('[data-atlas-country-evidence-spain]');
+    if(existing){existing.addEventListener('load',()=>{bindSpainComparator();reconcileSpainComparator();},{once:true});return;}
+    const spain=document.createElement('script');
+    spain.src='country-evidence-spain.js?v=pex-d1c-1';
+    spain.async=false;
+    spain.dataset.atlasCountryEvidenceSpain='runtime';
+    spain.addEventListener('load',()=>{bindSpainComparator();reconcileSpainComparator();},{once:true});
+    document.head.append(spain);
+  }
+
+  // PEX-D1B/D1C: keep the D1A evidence contract isolated, then load visible
+  // country modules sequentially so each immutable merge sees the prior registry.
   function loadAustraliaEvidence(){
-    if(document.querySelector('[data-atlas-country-evidence-australia]')) return;
+    if(window.ATLAS_COUNTRY_EVIDENCE_AUSTRALIA){bindAustraliaComparator();reconcileAustraliaComparator();loadSpainEvidence();return;}
+    const existing=document.querySelector('[data-atlas-country-evidence-australia]');
+    if(existing){existing.addEventListener('load',()=>{bindAustraliaComparator();reconcileAustraliaComparator();loadSpainEvidence();},{once:true});return;}
     const australia=document.createElement('script');
     australia.src='country-evidence-australia.js?v=pex-d1b-1';
     australia.async=false;
     australia.dataset.atlasCountryEvidenceAustralia='runtime';
-    australia.addEventListener('load',()=>{bindAustraliaComparator();reconcileAustraliaComparator();},{once:true});
+    australia.addEventListener('load',()=>{bindAustraliaComparator();reconcileAustraliaComparator();loadSpainEvidence();},{once:true});
     document.head.append(australia);
   }
 
@@ -158,5 +215,5 @@
   }
   loadCountryEvidence();
 
-  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d1b-1',australiaLegacyPitReconciled:true,australiaComparatorReconciled:true};
+  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d1c-1',australiaLegacyPitReconciled:true,australiaComparatorReconciled:true,spainLegacyPitReconciled:true,spainComparatorReconciled:true};
 })();
