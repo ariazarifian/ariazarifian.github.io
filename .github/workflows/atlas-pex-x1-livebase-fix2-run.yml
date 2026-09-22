@@ -24,9 +24,9 @@ jobs:
           git fetch origin ops/atlas-pex-x1-conflict-tensions-20260922
           git checkout --detach "$LIVE_HEAD"
           git checkout -b "$PRODUCT_BRANCH"
-          git show "$SOURCE_HEAD:atlas-exit/conflict-tensions.css" > atlas-exit/conflict-tensions.css
-          git show "$SOURCE_HEAD:atlas-exit/conflict-tensions.js" > atlas-exit/conflict-tensions.js
-          git show "$SOURCE_HEAD:atlas-exit/index.html" > atlas-exit/index.html
+          git show "${SOURCE_HEAD}:atlas-exit/conflict-tensions.css" > atlas-exit/conflict-tensions.css
+          git show "${SOURCE_HEAD}:atlas-exit/conflict-tensions.js" > atlas-exit/conflict-tensions.js
+          git show "${SOURCE_HEAD}:atlas-exit/index.html" > atlas-exit/index.html
           python3 - <<'PY'
           from pathlib import Path
           p=Path('atlas-exit/conflict-tensions.js')
@@ -113,7 +113,6 @@ jobs:
               assert.match((await page.locator('[data-layer="stability"]').textContent()).trim(),/Stabilité politique/,'stability label');
               assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true,'Manrope loaded');
               assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'document overflow before interaction');
-              // Protect the just-shipped readability hotfix on the new live base.
               await page.locator('#countrySearch').fill('Canada'); await page.waitForTimeout(180);
               await page.locator('#results [data-country="CAN"]').click({force:true});
               await page.waitForSelector('#inspector .atlas-evidence [data-evidence-field]');
