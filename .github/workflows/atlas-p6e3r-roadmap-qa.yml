@@ -59,7 +59,6 @@ jobs:
             const browser=await chromium.launch({headless:true});
             for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
               const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}});
-              await context.addInitScript(()=>{localStorage.clear();});
               const page=await context.newPage();
               const errors=[];
               page.on('pageerror',e=>errors.push(String(e)));
