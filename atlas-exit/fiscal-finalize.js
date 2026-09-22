@@ -11,7 +11,9 @@
     pwcCongoCIT:{name:'PwC République du Congo · impôt sur les sociétés',url:'https://taxsummaries.pwc.com/republic-of-congo/corporate/taxes-on-corporate-income'},
     namibiaCIT2026:{name:'Namibie · Fiscal Strategy 2025 · réforme IS 2026',url:'https://mof.gov.na/documents/76368/5919961/Fiscal%2BStrategy%2B2025%2Bfinal.pdf/3ff138c2-5c84-1a84-5812-144e2cfe98c3?download=true&t=1743406071481'},
     andorraIGI:{name:'Govern d’Andorra · IGI, taux général 4,5 %',url:'https://www.govern.ad/ca/l/4191561'},
-    russiaVAT2026:{name:'FNS Russie · TVA 22 % à compter de 2026',url:'https://www.nalog.gov.ru/new2026/'}
+    russiaVAT2026:{name:'FNS Russie · TVA 22 % à compter de 2026',url:'https://www.nalog.gov.ru/new2026/'},
+    japanCorpNTA:{name:'NTA Japon · taux de l’impôt sur les sociétés',url:'https://www.nta.go.jp/taxes/shiraberu/taxanswer/hojin/5759.htm'},
+    japanConsumptionNTA:{name:'NTA Japon · taxe à la consommation',url:'https://www.nta.go.jp/taxes/shiraberu/taxanswer/shohi/6303.htm'}
   });
 
   function merge(id,row){
@@ -58,6 +60,18 @@
     checked:'FNS Russie · 2026'
   });
 
+  // PEX-D1D legacy reconciliation for Japan's corporate/consumption cards.
+  // Keep the visible legacy layer current but scoped: these are national/current
+  // reference rates, never an all-in effective company or transaction burden.
+  merge('JPN',{
+    cit:'23,2 %',
+    citScope:'Impôt national ordinaire · traitement PME et impôts locaux distincts',
+    vat:'10 % standard',
+    vatScope:'Taxe à la consommation combinée · 8 % réduit · évolution alimentaire prévue au 01.04.2027',
+    sources:['japanCorpNTA','japanConsumptionNTA'],
+    checked:'NTA · vérifié 21.09.2026'
+  });
+
   // Territories where a national company-tax number would be misleading.
   const contextual={
     ATF:{cit:'Hors comparaison',citScope:'Territoire non résidentiel standard'},
@@ -98,6 +112,21 @@
   };
   if(window.ATLAS_TAX?.ESP) Object.assign(window.ATLAS_TAX.ESP,spainLayeredPit);
   if(window.ATLAS_CATALOG?.ESP) Object.assign(window.ATLAS_CATALOG.ESP,spainLayeredPit);
+
+  // PEX-D1D Japan reconciliation: retain 45% only as the national top marginal
+  // map/filter reference. Reconstruction special income tax and local inhabitant
+  // tax remain distinct and the 2027 change is explicit.
+  const japanLayeredPit={
+    tax:45,
+    taxLabel:'5–45 % national',
+    taxYear:'NTA · état du droit 01.04.2026',
+    scope:'Impôt national · surtaxe de reconstruction et impôt local distincts',
+    note:'Le barème national va de 5 % à 45 %. La surtaxe spéciale de reconstruction est actuellement de 2,1 % de l’impôt national de base et l’impôt local des habitants est distinct ; 45 % n’est pas une charge tout compris. Revalidation obligatoire avant le changement NTA signalé au 01.01.2027.',
+    src:null,
+    taxKind:'current-reference'
+  };
+  if(window.ATLAS_TAX?.JPN) Object.assign(window.ATLAS_TAX.JPN,japanLayeredPit);
+  if(window.ATLAS_CATALOG?.JPN) Object.assign(window.ATLAS_CATALOG.JPN,japanLayeredPit);
 
   // Lightweight runtime audit. It runs after script.js exposes AtlasExplorer and
   // records actual visible gaps; it does not alter any fiscal data.
@@ -157,6 +186,25 @@
     set('Sources',sourceHtml);
   }
 
+  function reconcileJapanComparator(){
+    const core=window.ATLAS_COUNTRY_EVIDENCE;
+    const jpn=window.ATLAS_COUNTRY_EVIDENCE_JAPAN?.country;
+    const table=document.querySelector('#compareTable table');
+    if(!core||!jpn||!table)return;
+    const headers=[...table.querySelectorAll('thead th')];
+    const jpnIndex=headers.findIndex(th=>/Japon/i.test(th.textContent||''));
+    if(jpnIndex<1)return;
+    const rowByLabel=label=>[...table.querySelectorAll('tbody tr')].find(tr=>tr.querySelector('td')?.textContent.trim()===label);
+    const cell=label=>rowByLabel(label)?.querySelectorAll('td')?.[jpnIndex]||null;
+    const set=(label,html)=>{const target=cell(label);if(target&&!(target.dataset.atlasNormalized==='JPN'&&target.innerHTML===html)){target.innerHTML=html;target.dataset.atlasNormalized='JPN';}};
+    const sourceHtml=['tax_residency','pit','cit_business','consumption_tax'].map(k=>core.renderSources(jpn.fields[k])).join('');
+    set('Revenu','<span class="val">5–45 % national</span><small>Surtaxe de reconstruction 2,1 % de l’impôt de base + impôt local des habitants distincts · changement signalé au 01.01.2027</small>');
+    set('Sociétés','<span class="val">23,2 % national ordinaire</span><small>Traitement réduit possible pour certaines petites sociétés sur les premiers 8 M¥ · impôts locaux distincts</small>');
+    set('TVA / consommation','<span class="val">10 % standard · 8 % réduit</span><small>Catégorie sensible · évolution alimentaire signalée au 01.04.2027</small>');
+    set('Taxes particulières','<small>Résidence fiscale, statut migratoire, surtaxe nationale, impôt local et assurance santé restent des objets distincts ; aucune addition ou équivalence automatique.</small>');
+    set('Sources',sourceHtml);
+  }
+
   function bindAustraliaComparator(){
     const host=document.querySelector('#compareTable');
     if(!host||host.dataset.atlasAusComparatorBound==='true')return;
@@ -173,19 +221,39 @@
     new MutationObserver(()=>queueMicrotask(reconcileSpainComparator)).observe(host,{childList:true,subtree:true});
   }
 
+  function bindJapanComparator(){
+    const host=document.querySelector('#compareTable');
+    if(!host||host.dataset.atlasJpnComparatorBound==='true')return;
+    host.dataset.atlasJpnComparatorBound='true';
+    reconcileJapanComparator();
+    new MutationObserver(()=>queueMicrotask(reconcileJapanComparator)).observe(host,{childList:true,subtree:true});
+  }
+
+  function loadJapanEvidence(){
+    if(window.ATLAS_COUNTRY_EVIDENCE_JAPAN){bindJapanComparator();reconcileJapanComparator();return;}
+    const existing=document.querySelector('[data-atlas-country-evidence-japan]');
+    if(existing){existing.addEventListener('load',()=>{bindJapanComparator();reconcileJapanComparator();},{once:true});return;}
+    const japan=document.createElement('script');
+    japan.src='country-evidence-japan.js?v=pex-d1d-1';
+    japan.async=false;
+    japan.dataset.atlasCountryEvidenceJapan='runtime';
+    japan.addEventListener('load',()=>{bindJapanComparator();reconcileJapanComparator();},{once:true});
+    document.head.append(japan);
+  }
+
   function loadSpainEvidence(){
-    if(window.ATLAS_COUNTRY_EVIDENCE_SPAIN){bindSpainComparator();reconcileSpainComparator();return;}
+    if(window.ATLAS_COUNTRY_EVIDENCE_SPAIN){bindSpainComparator();reconcileSpainComparator();loadJapanEvidence();return;}
     const existing=document.querySelector('[data-atlas-country-evidence-spain]');
-    if(existing){existing.addEventListener('load',()=>{bindSpainComparator();reconcileSpainComparator();},{once:true});return;}
+    if(existing){existing.addEventListener('load',()=>{bindSpainComparator();reconcileSpainComparator();loadJapanEvidence();},{once:true});return;}
     const spain=document.createElement('script');
     spain.src='country-evidence-spain.js?v=pex-d1c-1';
     spain.async=false;
     spain.dataset.atlasCountryEvidenceSpain='runtime';
-    spain.addEventListener('load',()=>{bindSpainComparator();reconcileSpainComparator();},{once:true});
+    spain.addEventListener('load',()=>{bindSpainComparator();reconcileSpainComparator();loadJapanEvidence();},{once:true});
     document.head.append(spain);
   }
 
-  // PEX-D1B/D1C: keep the D1A evidence contract isolated, then load visible
+  // PEX-D1B/D1C/D1D: keep the D1A evidence contract isolated, then load visible
   // country modules sequentially so each immutable merge sees the prior registry.
   function loadAustraliaEvidence(){
     if(window.ATLAS_COUNTRY_EVIDENCE_AUSTRALIA){bindAustraliaComparator();reconcileAustraliaComparator();loadSpainEvidence();return;}
@@ -215,5 +283,5 @@
   }
   loadCountryEvidence();
 
-  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d1c-1',australiaLegacyPitReconciled:true,australiaComparatorReconciled:true,spainLegacyPitReconciled:true,spainComparatorReconciled:true};
+  window.ATLAS_FISCAL_FINALIZE={loadedAt:'2026-09-16',corporateFixes:['CIV','COG','NAM'],consumptionFixes:['AND','RUS'],contextualCorporate:Object.keys(contextual),countryEvidenceBootstrap:'pex-d1d-1',australiaLegacyPitReconciled:true,australiaComparatorReconciled:true,spainLegacyPitReconciled:true,spainComparatorReconciled:true,japanLegacyTaxReconciled:true,japanComparatorReconciled:true};
 })();
