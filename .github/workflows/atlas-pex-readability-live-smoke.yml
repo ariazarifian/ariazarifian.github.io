@@ -1,0 +1,106 @@
+name: Atlas PEX-RH1 Explorer readability live smoke
+on:
+  push:
+    branches: [ops/atlas-pex-readability-live-smoke-20260923]
+permissions:
+  contents: read
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for exact live CSS bytes
+        env:
+          PRODUCT_HEAD: 2064d6f96b80156d19973d2332ee9f652d5a57ef
+          LIVE: https://atlas-expat.fr
+        run: |
+          git show "$PRODUCT_HEAD:atlas-exit/atlas-country-evidence.css" >/tmp/candidate.css
+          cand=$(sha256sum /tmp/candidate.css | awk '{print $1}')
+          success=0
+          for attempt in $(seq 1 60); do
+            if curl -fsS --max-time 15 "$LIVE/atlas-country-evidence.css?atlas_qa=$GITHUB_RUN_ID-$attempt" -o /tmp/live.css; then
+              live=$(sha256sum /tmp/live.css | awk '{print $1}')
+              echo "attempt=$attempt candidate=$cand live=$live"
+              if [ "$cand" = "$live" ]; then success=1; break; fi
+            fi
+            sleep 5
+          done
+          test "$success" = 1
+      - name: Install Chromium
+        run: |
+          mkdir -p /tmp/atlas-pw && cd /tmp/atlas-pw
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Live desktop mobile readability smoke
+        env:
+          LIVE: https://atlas-expat.fr/
+          PRODUCT_HEAD: 2064d6f96b80156d19973d2332ee9f652d5a57ef
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/qa-artifacts"
+          cat >/tmp/live-readability.cjs <<'JS'
+          const {chromium}=require('playwright');
+          const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+          const base=process.env.LIVE,out=path.join(process.env.GITHUB_WORKSPACE,'qa-artifacts');
+          const audited=[['CAN','Canada'],['AUS','Australie'],['ESP','Espagne']];
+          const report={productHead:process.env.PRODUCT_HEAD,rollbackHead:'e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd',live:base,viewports:[],countries:{},errors:[]};
+          async function openCountry(page,iso,name){
+            await page.locator('#countrySearch').fill(name);await page.waitForTimeout(150);
+            assert.equal(await page.locator(`#results [data-country="${iso}"]`).count(),1,`${iso} search result`);
+            await page.evaluate(id=>document.querySelector(`#results [data-country="${id}"]`)?.click(),iso);
+            await page.waitForSelector('#inspector [data-evidence-field]',{timeout:10000});
+          }
+          async function auditCountry(page,iso,name,viewport){
+            await openCountry(page,iso,name);
+            const panel=page.locator('#inspector .atlas-evidence').last(),summaries=panel.locator('.atlas-evidence__row > p');
+            assert.equal(await panel.locator('[data-evidence-field]').count(),8,`${iso} fields`);
+            assert.equal(await panel.locator('.atlas-evidence__intro').evaluate(el=>getComputedStyle(el).display),'none',`${iso} intro hidden`);
+            assert.equal(await summaries.count(),8,`${iso} summaries in DOM`);
+            for(let i=0;i<8;i++) assert.equal(await summaries.nth(i).isVisible(),false,`${iso} summary ${i} hidden`);
+            const bounds=await panel.boundingBox();
+            assert.ok(bounds && bounds.height<720,`${iso} evidence panel height ${bounds?.height}`);
+            assert.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,`${iso} inspector overflow`);
+            assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,`${iso} page overflow`);
+            const detail=panel.locator('.atlas-evidence__source').first();await detail.locator('summary').click();
+            assert.equal(await summaries.first().isVisible(),true,`${iso} summary disclosed`);
+            assert.ok(await detail.locator('a.detail-source, .atlas-evidence__source-name').count()>=1,`${iso} source disclosed`);
+            assert.ok((await detail.innerText()).trim().length>30,`${iso} detail retained`);
+            await detail.locator('summary').click();
+            report.countries[`${iso}-${viewport}`]={height:Math.round(bounds.height),fields:8,disclosureAccessible:true};
+            await page.screenshot({path:path.join(out,`${iso.toLowerCase()}-${viewport}.png`),fullPage:false});
+            await page.evaluate(()=>document.querySelector('#inspector [data-dismiss]')?.click());
+          }
+          (async()=>{const browser=await chromium.launch({headless:true});
+            for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
+              const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}}),page=await context.newPage(),errors=[],failed=[];
+              page.on('pageerror',e=>errors.push(String(e)));
+              page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource|favicon/i.test(m.text()))errors.push('console: '+m.text())});
+              page.on('requestfailed',r=>{try{if(new URL(r.url()).origin===new URL(base).origin)failed.push(`${r.method()} ${r.url()} ${r.failure()?.errorText||''}`)}catch{}});
+              await page.goto(`${base}?atlas_qa=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:30000});
+              await page.waitForFunction(()=>window.AtlasExplorer?.ready?.()===true,null,{timeout:20000});
+              await page.waitForFunction(()=>['AUS','ESP','JPN','CHE','SGP','CAN'].every(x=>window.ATLAS_COUNTRY_EVIDENCE?.countries?.[x]?.integrationState==='published'),null,{timeout:20000});
+              assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true,'Manrope');
+              for(const c of audited) await auditCountry(page,...c,cfg.name);
+              await page.evaluate(()=>document.querySelector('#regions [data-region="Europe"]')?.click());await page.waitForTimeout(100);
+              assert.equal(await page.locator('#results [data-country="ESP"]').count(),1);assert.equal(await page.locator('#results [data-country="CAN"]').count(),0);await page.evaluate(()=>window.AtlasExplorer.resetFilters());
+              for(const [iso,name] of [['AUS','Australie'],['CAN','Canada']]){await openCountry(page,iso,name);await page.evaluate(id=>document.querySelector(`#inspector [data-save="${id}"]`)?.click(),iso);await page.evaluate(()=>document.querySelector('#inspector [data-dismiss]')?.click());}
+              assert.equal((await page.locator('#savedCount').textContent()).trim(),'2');await page.evaluate(()=>document.querySelector('#openCompare')?.click());await page.locator('#compareDialog').waitFor({state:'visible'});const txt=await page.locator('#compareTable').innerText();assert.match(txt,/Australie/);assert.match(txt,/Canada/);await page.evaluate(()=>document.querySelector('#compareDialog [data-close]')?.click());
+              await page.evaluate(()=>document.querySelector('[data-layer="tax"]')?.click());assert.equal(await page.evaluate(()=>window.AtlasExplorer.state.layer),'tax');await page.evaluate(()=>document.querySelector('[data-layer="explore"]')?.click());assert.equal(await page.evaluate(()=>window.AtlasExplorer.state.layer),'explore');
+              assert.deepEqual(errors,[],'browser errors');assert.deepEqual(failed,[],'same-origin failures');report.viewports.push(cfg);report.errors.push(...errors,...failed);await context.close();
+            }
+            await browser.close();fs.writeFileSync(path.join(out,'live-readability-report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          NODE_PATH="/tmp/atlas-pw/node_modules" node /tmp/live-readability.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-readability-live-smoke
+          path: qa-artifacts
+          if-no-files-found: warn
