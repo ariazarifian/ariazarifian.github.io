@@ -1,0 +1,134 @@
+name: Atlas PEX-RH1 Explorer readability hotfix QA2
+on:
+  push:
+    branches: [ops/atlas-pex-readability-hotfix-qa2-20260923]
+permissions:
+  contents: read
+jobs:
+  browser-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify bounded product diff
+        env:
+          PRODUCT_HEAD: 2064d6f96b80156d19973d2332ee9f652d5a57ef
+          LIVE_PARENT: e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd
+        run: |
+          git diff --name-only "$LIVE_PARENT..$PRODUCT_HEAD" | tee /tmp/changed.txt
+          test "$(wc -l < /tmp/changed.txt)" -eq 1
+          grep -Fx 'atlas-exit/atlas-country-evidence.css' /tmp/changed.txt
+      - name: Install Chromium
+        run: |
+          mkdir -p /tmp/atlas-pw && cd /tmp/atlas-pw
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Run exact-candidate browser QA
+        env:
+          PRODUCT_HEAD: 2064d6f96b80156d19973d2332ee9f652d5a57ef
+        run: |
+          git checkout --detach "$PRODUCT_HEAD"
+          mkdir -p "$GITHUB_WORKSPACE/qa-artifacts"
+          python3 -m http.server 4173 --directory atlas-exit >/tmp/atlas-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid || true' EXIT
+          ready=0
+          for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:4173/ >/dev/null; then ready=1; break; fi; sleep 1; done
+          test "$ready" = 1
+          cat >/tmp/readability-qa.cjs <<'JS'
+          const {chromium}=require('playwright');
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const path=require('node:path');
+          const base='http://127.0.0.1:4173/';
+          const out=path.join(process.env.GITHUB_WORKSPACE,'qa-artifacts');
+          const audited=[['CAN','Canada'],['AUS','Australie'],['ESP','Espagne']];
+          const report={productHead:process.env.PRODUCT_HEAD,rollbackHead:'e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd',viewports:[],countries:{},errors:[]};
+          async function openCountry(page,iso,name){
+            await page.locator('#countrySearch').fill(name);
+            await page.waitForTimeout(120);
+            assert.equal(await page.locator(`#results [data-country="${iso}"]`).count(),1,`${iso} search result`);
+            await page.evaluate(id=>document.querySelector(`#results [data-country="${id}"]`)?.click(),iso);
+            await page.waitForSelector('#inspector [data-evidence-field]',{timeout:10000});
+          }
+          async function auditCountry(page,iso,name,viewport){
+            await openCountry(page,iso,name);
+            const panel=page.locator('#inspector .atlas-evidence').last();
+            assert.equal(await panel.locator('[data-evidence-field]').count(),8,`${iso} 8 evidence fields`);
+            assert.equal(await panel.locator('.atlas-evidence__intro').evaluate(el=>getComputedStyle(el).display),'none',`${iso} technical intro hidden`);
+            const summaries=panel.locator('.atlas-evidence__row > p');
+            assert.equal(await summaries.count(),8,`${iso} summaries retained in DOM`);
+            for(let i=0;i<8;i++) assert.equal(await summaries.nth(i).isVisible(),false,`${iso} summary ${i} hidden by default`);
+            const bounds=await panel.boundingBox();
+            await page.screenshot({path:path.join(out,`${iso.toLowerCase()}-${viewport}.png`),fullPage:false});
+            assert.ok(bounds && bounds.height<720,`${iso} default evidence panel too tall: ${bounds?.height}`);
+            assert.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,`${iso} inspector overflow`);
+            assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,`${iso} page overflow`);
+            const firstDetail=panel.locator('.atlas-evidence__source').first();
+            await firstDetail.locator('summary').click();
+            assert.equal(await firstDetail.getAttribute('open')!==null,true,`${iso} explicit disclosure opens`);
+            assert.equal(await summaries.first().isVisible(),true,`${iso} full explanation accessible on disclosure`);
+            assert.ok(await firstDetail.locator('a.detail-source, .atlas-evidence__source-name').count()>=1,`${iso} source accessible`);
+            const disclosedText=(await firstDetail.innerText()).trim();
+            assert.ok(disclosedText.length>30,`${iso} caveat/source text retained`);
+            await firstDetail.locator('summary').click();
+            report.countries[`${iso}-${viewport}`]={height:Math.round(bounds.height),fields:8,defaultSummariesHidden:true,disclosureAccessible:true};
+            await page.evaluate(()=>document.querySelector('#inspector [data-dismiss]')?.click());
+          }
+          (async()=>{
+            const browser=await chromium.launch({headless:true});
+            for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
+              const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}});
+              const page=await context.newPage();
+              const errors=[],failed=[];
+              page.on('pageerror',e=>errors.push(String(e)));
+              page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource|favicon/i.test(m.text()))errors.push('console: '+m.text())});
+              page.on('requestfailed',r=>{try{if(new URL(r.url()).origin===new URL(base).origin)failed.push(`${r.method()} ${r.url()} ${r.failure()?.errorText||''}`)}catch{}});
+              await page.goto(base,{waitUntil:'domcontentloaded',timeout:30000});
+              await page.waitForFunction(()=>window.AtlasExplorer?.ready?.()===true,null,{timeout:20000});
+              await page.waitForFunction(()=>['AUS','ESP','JPN','CHE','SGP','CAN'].every(x=>window.ATLAS_COUNTRY_EVIDENCE?.countries?.[x]?.integrationState==='published'),null,{timeout:20000});
+              assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true,'Manrope loaded');
+              for(const [iso,name] of audited) await auditCountry(page,iso,name,cfg.name);
+              await page.evaluate(()=>document.querySelector('#regions [data-region="Europe"]')?.click());
+              await page.waitForTimeout(100);
+              assert.equal(await page.locator('#results [data-country="ESP"]').count(),1,'Europe filter keeps Spain');
+              assert.equal(await page.locator('#results [data-country="CAN"]').count(),0,'Europe filter excludes Canada');
+              await page.evaluate(()=>window.AtlasExplorer.resetFilters());
+              for(const [iso,name] of [['AUS','Australie'],['CAN','Canada']]){
+                await openCountry(page,iso,name);
+                await page.evaluate(id=>document.querySelector(`#inspector [data-save="${id}"]`)?.click(),iso);
+                await page.evaluate(()=>document.querySelector('#inspector [data-dismiss]')?.click());
+              }
+              assert.equal((await page.locator('#savedCount').textContent()).trim(),'2','save regression');
+              await page.evaluate(()=>document.querySelector('#openCompare')?.click());
+              await page.locator('#compareDialog').waitFor({state:'visible'});
+              const compare=await page.locator('#compareTable').innerText();
+              assert.match(compare,/Australie/);assert.match(compare,/Canada/);
+              await page.evaluate(()=>document.querySelector('#compareDialog [data-close]')?.click());
+              await page.evaluate(()=>document.querySelector('[data-layer="tax"]')?.click());
+              assert.equal(await page.evaluate(()=>window.AtlasExplorer.state.layer),'tax','tax map layer');
+              await page.evaluate(()=>document.querySelector('[data-layer="explore"]')?.click());
+              assert.equal(await page.evaluate(()=>window.AtlasExplorer.state.layer),'explore','explore map layer');
+              assert.deepEqual(errors,[],'browser errors');
+              assert.deepEqual(failed,[],'same-origin request failures');
+              report.viewports.push(cfg);report.errors.push(...errors,...failed);
+              await context.close();
+            }
+            await browser.close();
+            fs.writeFileSync(path.join(out,'readability-report.json'),JSON.stringify(report,null,2));
+            console.log(JSON.stringify(report,null,2));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          NODE_PATH="/tmp/atlas-pw/node_modules" node /tmp/readability-qa.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-readability-hotfix-qa2
+          path: qa-artifacts
+          if-no-files-found: warn
