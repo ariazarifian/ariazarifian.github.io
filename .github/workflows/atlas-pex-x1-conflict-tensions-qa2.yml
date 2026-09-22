@@ -59,9 +59,12 @@ jobs:
           const report={productHead:'0d2f328debec4bfbeccba655541ed2496174fbbe',baseHead:'e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd',viewports:[]};
           async function searchAndOpen(page,id,name){
             await page.locator('#countrySearch').fill(name); await page.waitForTimeout(120);
-            assert.equal(await page.locator(`[data-country="${id}"]`).count(),1,id);
+            const row=page.locator(`[data-country="${id}"]`);
+            assert.equal(await row.count(),1,id);
             await page.waitForFunction(([iso,cat])=>document.querySelector(`[data-country="${iso}"] .row-value`)?.textContent.trim()===cat,[id,expected[id]],{timeout:5000});
-            await page.evaluate(iso=>document.querySelector(`[data-country="${iso}"]`)?.click(),id);
+            await row.dispatchEvent('click');
+            await page.waitForFunction(iso=>window.AtlasExplorer?.state?.selected===iso,id,{timeout:5000});
+            await page.waitForFunction(()=>!!document.querySelector('#inspectorContent .inspector-body'),null,{timeout:5000});
             await page.waitForSelector('#inspector [data-conflict-panel]',{timeout:8000});
             assert.equal((await page.locator('#inspector [data-conflict-panel] .conflict-risk').textContent()).trim(),expected[id],id+': category');
             assert.match(await page.locator('#inspector [data-conflict-panel]').innerText(),/22\.09\.2026/);
