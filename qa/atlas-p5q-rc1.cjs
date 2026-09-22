@@ -42,7 +42,7 @@ async function explorer(context,cfg){
   await page.locator('#countrySearch').fill('Suisse');
   await page.waitForTimeout(120);
   assert.equal(await page.locator('[data-country="CHE"]').count(),1,'Switzerland visible');
-  await page.locator('[data-country="CHE"]').click({force:true});
+  await page.locator('[data-country="CHE"]').evaluate(el=>el.click());
   await page.waitForSelector('[data-atlas-switzerland-evidence][data-country="CHE"]');
   const panel=page.locator('[data-atlas-switzerland-evidence][data-country="CHE"]');
   assert.equal(await panel.locator('[data-evidence-field]').count(),8,'CHE 8 normalized fields');
