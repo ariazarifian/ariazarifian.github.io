@@ -1,0 +1,45 @@
+{
+  "version": "ATLAS-CRAWL-INDEX-QA-HARNESS-v1.0.0",
+  "origin": "https://atlas-expat.fr",
+  "files": {
+    "robots": "atlas-exit/robots.txt",
+    "sitemap": "atlas-exit/sitemap.xml",
+    "hub": "atlas-exit/s-expatrier-etats-unis.html",
+    "immigration": "atlas-exit/immigration-usa.html",
+    "e2": "atlas-exit/visa-e2-etats-unis-francais.html",
+    "guide": "atlas-exit/offres.html",
+    "roadmap": "atlas-exit/parcours-usa.html",
+    "accompagnement": "atlas-exit/accompagnement.html"
+  },
+  "canonical": {
+    "hub": "https://atlas-expat.fr/s-expatrier-etats-unis.html",
+    "immigration": "https://atlas-expat.fr/immigration-usa.html",
+    "e2": "https://atlas-expat.fr/visa-e2-etats-unis-francais.html",
+    "guide": "https://atlas-expat.fr/offres.html",
+    "roadmap": "https://atlas-expat.fr/parcours-usa.html",
+    "accompagnement": "https://atlas-expat.fr/accompagnement.html"
+  },
+  "always_in_sitemap": [
+    "https://atlas-expat.fr/s-expatrier-etats-unis.html",
+    "https://atlas-expat.fr/immigration-usa.html",
+    "https://atlas-expat.fr/visa-e2-etats-unis-francais.html",
+    "https://atlas-expat.fr/offres.html",
+    "https://atlas-expat.fr/accompagnement.html"
+  ],
+  "profiles": {
+    "current-production": {
+      "roadmap_in_sitemap": false,
+      "require_immigration_to_e2_edge": false,
+      "require_secondary_collector_parity": true,
+      "require_secondary_free_funnel_events": true,
+      "human_formats_closed": true
+    },
+    "accepted-static-train": {
+      "roadmap_in_sitemap": true,
+      "require_immigration_to_e2_edge": true,
+      "require_secondary_collector_parity": true,
+      "require_secondary_free_funnel_events": true,
+      "human_formats_closed": true
+    }
+  }
+}
