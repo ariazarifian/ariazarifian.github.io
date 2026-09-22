@@ -80,7 +80,12 @@ jobs:
               assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true);
               assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'document overflow');
               if(cfg.name==='mobile'){await page.locator('#mobileFilters').click();assert.equal(await page.locator('#mobileFilters').getAttribute('aria-expanded'),'true')}
-              await page.locator('[data-layer="conflict"]').click(); await page.waitForFunction(()=>document.body.classList.contains('conflict-layer'));
+              await page.locator('[data-layer="conflict"]').click();
+              await page.waitForFunction(()=>document.body.classList.contains('conflict-layer'));
+              await page.waitForFunction(()=>{
+                const css=id=>getComputedStyle(document.querySelector(`#countries [data-id="${id}"]`)).fill;
+                return css('USA')==='rgb(95, 141, 118)'&&css('CHE')==='rgb(95, 141, 118)'&&css('THA')==='rgb(168, 132, 85)';
+              },null,{timeout:3000});
               assert.equal((await page.locator('#mapLabel').textContent()).trim(),'CONFLIT & TENSIONS · ÉTAT AU 22.09.2026');
               const legend=await page.locator('#legend').innerText(); for(const x of ['Faible','Modéré','Élevé','Critique','À documenter'])assert.match(legend,new RegExp(x));
               const runtime=await page.evaluate(()=>Object.fromEntries(Object.entries(window.ATLAS_CONFLICT_TENSIONS).map(([id,d])=>[id,{category:d.category,sources:d.sources.map(s=>s.url)}])));
