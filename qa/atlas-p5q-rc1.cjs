@@ -7,23 +7,30 @@ const PRODUCT_HEAD='f7be94781368b898e598d5363fd16986230fd9bd';
 const report={productHead:PRODUCT_HEAD,viewports:[],errors:[]};
 const ignored=/umami|ERR_FAILED|Failed to load resource|net::ERR_/i;
 
-async function common(page,name,width,height){
+function watch(page,name,width){
   const errors=[];
   page.on('pageerror',e=>errors.push(String(e)));
   page.on('console',m=>{if(m.type()==='error'&&!ignored.test(m.text()))errors.push('console: '+m.text())});
+  return ()=>{
+    report.errors.push(...errors.map(x=>`${name}-${width}: ${x}`));
+    assert.deepEqual(errors,[],`${name}: browser errors`);
+  };
+}
+
+async function common(page,name,width,height,assertNoErrors){
   await page.waitForTimeout(250);
   assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true,`${name}: Manrope`);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,`${name}: horizontal overflow`);
   assert.ok((await page.locator('h1').first().innerText()).trim().length>3,`${name}: h1`);
   const viewportPath=`qa-artifacts/${name}-${width}x${height}.png`;
   await page.screenshot({path:viewportPath,fullPage:false});
-  report.errors.push(...errors.map(x=>`${name}-${width}: ${x}`));
-  assert.deepEqual(errors,[],`${name}: browser errors`);
+  assertNoErrors();
   return viewportPath;
 }
 
 async function explorer(context,cfg){
   const page=await context.newPage();
+  const assertNoErrors=watch(page,'explorer',cfg.width);
   await page.goto(BASE+'index.html',{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>window.ATLAS_COUNTRY_EVIDENCE?.countries?.CHE?.integrationState==='published',{},{timeout:15000});
   const evidence=await page.evaluate(()=>{
@@ -36,33 +43,36 @@ async function explorer(context,cfg){
   await page.waitForTimeout(120);
   assert.equal(await page.locator('[data-country="CHE"]').count(),1,'Switzerland visible');
   await page.locator('[data-country="CHE"]').click({force:true});
-  await page.waitForSelector('#inspector [data-evidence-field]');
-  assert.equal(await page.locator('#inspector [data-evidence-field]').count(),8,'CHE 8 fields');
-  assert.equal(await page.locator('#inspector a.detail-source').count(),12,'CHE 12 source links');
-  const text=await page.locator('#inspector').innerText();
+  await page.waitForSelector('[data-atlas-switzerland-evidence][data-country="CHE"]');
+  const panel=page.locator('[data-atlas-switzerland-evidence][data-country="CHE"]');
+  assert.equal(await panel.locator('[data-evidence-field]').count(),8,'CHE 8 normalized fields');
+  assert.equal(await panel.locator('a.detail-source').count(),12,'CHE 12 normalized source links');
+  const text=await panel.innerText();
   assert.match(text,/Fédéral \+ canton \+ commune/);
   assert.match(text,/8,1 % standard/);
   assert.doesNotMatch(text,/Non documenté|À documenter/i);
-  const shot=await common(page,'explorer',cfg.width,cfg.height);
-  report.viewports.push({surface:'Explorer',...cfg,evidence,shot});
+  const shot=await common(page,'explorer',cfg.width,cfg.height,assertNoErrors);
+  report.viewports.push({surface:'Explorer',...cfg,evidence,normalizedFields:8,normalizedSourceLinks:12,shot});
   await page.close();
 }
 
 async function guide(context,cfg){
   const page=await context.newPage();
+  const assertNoErrors=watch(page,'guide',cfg.width);
   await page.goto(BASE+'offres.html?countries=USA',{waitUntil:'domcontentloaded'});
   assert.equal(await page.locator('link[rel="canonical"]').getAttribute('href'),'https://atlas-expat.fr/offres.html');
   assert.equal(await page.locator('[data-atlas-event="guide_download_click"]').count(),2);
   assert.ok(await page.locator('[data-atlas-event="free_funnel_cta"][data-atlas-target="roadmap"]').count()>=2);
   assert.equal(await page.locator('.gq-cover').evaluate(img=>img.complete&&img.naturalWidth>0),true,'V15 cover loads');
   assert.match(await page.locator('body').innerText(),/25 pages/);
-  const shot=await common(page,'guide',cfg.width,cfg.height);
+  const shot=await common(page,'guide',cfg.width,cfg.height,assertNoErrors);
   report.viewports.push({surface:'Guide',...cfg,shot});
   await page.close();
 }
 
 async function roadmap(context,cfg){
   const page=await context.newPage();
+  const assertNoErrors=watch(page,'roadmap',cfg.width);
   await page.goto(BASE+'parcours-usa.html',{waitUntil:'domcontentloaded'});
   await page.evaluate(()=>{localStorage.removeItem('atlas_usa_route_v3');localStorage.removeItem('atlas_usa_qep_v1');});
   await page.reload({waitUntil:'domcontentloaded'});
@@ -87,7 +97,7 @@ async function roadmap(context,cfg){
   assert.match(await page.locator('[data-card-step="identity"]').innerText(),/10 jours/);
   await page.reload({waitUntil:'domcontentloaded'});
   assert.equal((await page.locator('#doneCount').innerText()).trim(),'8');
-  const shot=await common(page,'roadmap',cfg.width,cfg.height);
+  const shot=await common(page,'roadmap',cfg.width,cfg.height,assertNoErrors);
   report.viewports.push({surface:'Roadmap',...cfg,progress:'8/8',shot});
   await page.locator('#resetRoute').click();
   assert.equal(await page.evaluate(()=>localStorage.getItem('atlas_usa_route_v3')),null);
@@ -97,6 +107,7 @@ async function roadmap(context,cfg){
 
 async function accompagnement(context,cfg){
   const page=await context.newPage();
+  const assertNoErrors=watch(page,'accompagnement',cfg.width);
   await page.goto(BASE+'accompagnement.html',{waitUntil:'domcontentloaded'});
   assert.equal(await page.locator('link[rel="canonical"]').getAttribute('href'),'https://atlas-expat.fr/accompagnement.html');
   assert.equal(await page.locator('script[src^="atlas-events.js"]').count(),1);
@@ -110,7 +121,7 @@ async function accompagnement(context,cfg){
   assert.ok((await page.locator('#programmeTitle').innerText()).trim().length>0);
   await page.locator('#closeProgramme').click();
   await page.waitForTimeout(80);
-  const shot=await common(page,'accompagnement',cfg.width,cfg.height);
+  const shot=await common(page,'accompagnement',cfg.width,cfg.height,assertNoErrors);
   report.viewports.push({surface:'Accompagnement',...cfg,freeFunnelCtas:4,shot});
   await page.close();
 }
