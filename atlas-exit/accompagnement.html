@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#f7f5f0">
+<meta name="theme-color" content="#0a1417">
 <meta name="description" content="Le parcours Atlas USA est gratuit. Découvrez les formats d’accompagnement humain envisagés pour les projets qui demandent davantage de clarification ou de coordination.">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cloud.umami.is; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://cloud.umami.is https://gateway.umami.is; base-uri 'none'; object-src 'none'; form-action 'none'">
 <title>Accompagnement — Atlas Exit</title>
 <link rel="stylesheet" href="atlas-ui.css?v=p5ds0-2">
+<link rel="stylesheet" href="atlas-ui-accompagnement.css?v=p5q2-1">
 <script defer src="https://cloud.umami.is/script.js" data-website-id="16d90020-7c80-42f7-bee3-ee10249320a0" data-domains="atlas-expat.fr,www.atlas-expat.fr"></script>
 <script src="analytics.js?v=3" defer></script>
 <script src="commerce-data.js?v=commerce1" defer></script>
@@ -30,106 +31,150 @@
   </div>
 </header>
 
-<main class="ac-main">
-  <section class="atlas-container ac-hero" aria-labelledby="pageTitle">
-    <div class="ac-hero__copy">
-      <span class="atlas-kicker">Accompagnement humain · France → USA</span>
-      <h1 class="atlas-display" id="pageTitle">Le libre-service fait le travail courant. L’humain intervient pour le reste.</h1>
-      <p class="atlas-lead">Le guide V15, la roadmap et les outils Atlas restent gratuits. Une intervention humaine n’a de sens que lorsque le projet demande davantage de clarification, de coordination ou de revue.</p>
-      <div class="atlas-actions">
-        <a class="atlas-button" href="parcours-usa.html">Continuer gratuitement →</a>
-        <a class="atlas-button atlas-button--secondary" href="offres.html?countries=USA">Voir le guide V15</a>
+<main class="aq-main">
+  <section class="aq-hero-stage" aria-labelledby="pageTitle">
+    <div class="atlas-container aq-hero">
+      <div class="aq-hero__copy">
+        <span class="aq-overline">Intervention humaine · France → USA</span>
+        <h1 id="pageTitle">Atlas avance seul. L’humain entre quand la décision devient complexe.</h1>
+        <p class="aq-hero__lead">Le guide V15, la roadmap et les outils Atlas restent gratuits. L’accompagnement n’est pas un péage : c’est une couche de jugement, de revue et de coordination pour les situations qui ne se résolvent pas proprement en libre-service.</p>
+        <div class="aq-hero__actions">
+          <a class="atlas-button aq-button--gold" href="parcours-usa.html">Continuer gratuitement →</a>
+          <a class="aq-text-link" href="offres.html?countries=USA">Voir le guide V15</a>
+        </div>
+        <p class="aq-hero__note">Formats humains envisagés · non ouverts à la commande aujourd’hui.</p>
+      </div>
+
+      <aside class="aq-brief" aria-label="Quand l’intervention humaine devient utile">
+        <div class="aq-brief__top">
+          <span>Dossier de décision</span>
+          <strong>Sur étude</strong>
+        </div>
+        <div class="aq-brief__statement">Le signal n’est pas le nombre de démarches. C’est le niveau d’arbitrage qu’elles exigent.</div>
+        <ol class="aq-signals">
+          <li><span>01</span><div><strong>Clarifier</strong><small>une décision qui engage la suite du projet</small></div></li>
+          <li><span>02</span><div><strong>Coordonner</strong><small>pièces, calendrier et plusieurs intervenants</small></div></li>
+          <li><span>03</span><div><strong>Revoir</strong><small>un dossier complexe avant une étape sensible</small></div></li>
+        </ol>
+        <div class="aq-brief__baseline">
+          <img src="assets/atlas-v15-cover.webp" alt="Couverture du guide Atlas Exit USA, édition 15.0" width="58" height="82" decoding="async">
+          <div><span>Le socle Atlas reste gratuit</span><strong>25 pages · 8 étapes · 0 €</strong></div>
+        </div>
+      </aside>
+    </div>
+    <div class="atlas-container aq-hero__rail" aria-label="Principe du parcours">
+      <span>Comprendre</span><i></i><span>Structurer</span><i></i><span>Avancer</span><i></i><strong>Faire intervenir si nécessaire</strong>
+    </div>
+  </section>
+
+  <section class="atlas-container aq-threshold" aria-labelledby="thresholdTitle">
+    <div class="aq-threshold__intro">
+      <span class="aq-eyebrow">Le bon seuil</span>
+      <h2 id="thresholdTitle">L’humain n’est pas systématique.</h2>
+      <p>Atlas est conçu pour absorber le travail courant. Le recours humain devient rationnel lorsque l’enjeu est moins de trouver une information que d’interpréter une situation, ordonner des dépendances ou sécuriser une décision.</p>
+    </div>
+    <div class="aq-threshold__axis" aria-label="Du libre-service à l’intervention humaine">
+      <div class="aq-threshold__point aq-threshold__point--free">
+        <span>Libre-service Atlas</span>
+        <strong>Comprendre et exécuter</strong>
+        <p>Guide V15, roadmap personnalisée, suivi local et progression sans compte ni paiement.</p>
+      </div>
+      <div class="aq-threshold__line" aria-hidden="true"><i></i></div>
+      <div class="aq-threshold__point aq-threshold__point--human">
+        <span>Intervention humaine</span>
+        <strong>Arbitrer et coordonner</strong>
+        <p>Revue, clarification et organisation d’un projet qui comporte une vraie friction décisionnelle.</p>
       </div>
     </div>
-
-    <aside class="ac-proof" aria-label="Continuité du produit Atlas">
-      <div class="ac-proof__head">
-        <span class="atlas-kicker">Un seul parcours</span>
-        <img class="ac-proof__cover" src="assets/atlas-v15-cover.webp" alt="Couverture du guide Atlas Exit USA, édition 15.0" width="80" height="113" decoding="async">
-      </div>
-      <h2 class="ac-proof__title">Comprendre, avancer, puis faire intervenir un humain si nécessaire.</h2>
-      <p class="ac-proof__intro">L’accompagnement n’est pas une porte d’entrée payante vers Atlas. C’est la couche humaine d’un parcours qui reste d’abord utilisable seul.</p>
-      <div class="ac-journey" aria-label="Étapes du parcours Atlas">
-        <div class="ac-journey__item"><span class="ac-journey__index">01</span><span class="ac-journey__label">Guide V15</span><span class="ac-journey__state">Gratuit</span></div>
-        <div class="ac-journey__item"><span class="ac-journey__index">02</span><span class="ac-journey__label">Roadmap personnalisée</span><span class="ac-journey__state">Gratuit</span></div>
-        <div class="ac-journey__item"><span class="ac-journey__index">03</span><span class="ac-journey__label">Intervention humaine</span><span class="ac-journey__state">Sur étude</span></div>
-      </div>
-    </aside>
   </section>
 
-  <section class="atlas-container ac-boundary" aria-label="Quand utiliser Atlas seul ou avec un accompagnement humain">
-    <article class="ac-boundary__item">
-      <span class="atlas-kicker">Atlas suffit souvent</span>
-      <h2>Comprendre, préparer, avancer.</h2>
-      <p>Le guide, la roadmap et le suivi local couvrent le parcours en libre-service sans compte ni paiement. Les frais administratifs et professionnels éventuels restent à votre charge.</p>
-    </article>
-    <article class="ac-boundary__item">
-      <span class="atlas-kicker">L’humain devient utile</span>
-      <h2>Arbitrer, revoir, coordonner.</h2>
-      <p>Quand le projet devient ambigu, multi-intervenants ou fortement dépendant de pièces et de calendrier, une revue humaine peut réduire les erreurs de séquence et clarifier les décisions restantes.</p>
-    </article>
-  </section>
-
-  <section class="atlas-container" aria-labelledby="formatsTitle">
-    <div class="ac-section-head">
+  <section class="aq-services-stage" aria-labelledby="formatsTitle">
+    <div class="atlas-container aq-services-head">
       <div>
-        <span class="atlas-kicker">Formats envisagés</span>
-        <h2 class="atlas-display" id="formatsTitle">Trois niveaux d’intervention, pas trois abonnements.</h2>
+        <span class="aq-overline aq-overline--light">Formats envisagés</span>
+        <h2 id="formatsTitle">Trois profondeurs d’intervention. Pas trois abonnements.</h2>
       </div>
-      <p>Aucun de ces formats n’est ouvert à la commande aujourd’hui. Le périmètre, les intervenants et les disponibilités seront confirmés avant toute commercialisation.</p>
+      <p>Ces formats décrivent des niveaux possibles de travail humain. Aucun n’est ouvert à la commande aujourd’hui : périmètre, intervenants, disponibilité et conditions seront confirmés avant toute commercialisation.</p>
     </div>
 
-    <div class="ac-services">
-      <article class="ac-service">
-        <div class="ac-service__index">01</div>
-        <div class="ac-service__copy">
+    <div class="atlas-container aq-services">
+      <article class="aq-service">
+        <div class="aq-service__number">01</div>
+        <div class="aq-service__body">
+          <span class="aq-service__phase">Clarification</span>
           <h3>Projet USA</h3>
           <p>Accompagnement humain envisagé : séances de clarification, revue du projet et aide à structurer les décisions difficiles. Fréquence et intervenants à confirmer.</p>
         </div>
-        <div class="ac-service__meta">
-          <span class="ac-status">En préparation</span>
-          <span class="ac-price-label">Positionnement envisagé</span>
-          <div class="ac-price">990 €</div>
-          <button class="ac-program-button" data-program="guided">Voir le programme prévu ↗</button>
+        <div class="aq-service__aside">
+          <span class="aq-status">En préparation</span>
+          <div class="aq-service__price"><small>Positionnement envisagé</small><strong>990 €</strong></div>
+          <button class="aq-program-button" data-program="guided">Voir le programme prévu <span aria-hidden="true">↗</span></button>
         </div>
       </article>
 
-      <article class="ac-service">
-        <div class="ac-service__index">02</div>
-        <div class="ac-service__copy">
+      <article class="aq-service">
+        <div class="aq-service__number">02</div>
+        <div class="aq-service__body">
+          <span class="aq-service__phase">Organisation</span>
           <h3>Coordination</h3>
           <p>Organisation du départ envisagée avec intervention humaine : calendrier, pièces et suivi administratif selon un périmètre écrit. Frais officiels exclus.</p>
         </div>
-        <div class="ac-service__meta">
-          <span class="ac-status">Sur étude · non ouvert</span>
-          <span class="ac-price-label">Positionnement envisagé</span>
-          <div class="ac-price">2 500 €</div>
-          <button class="ac-program-button" data-program="coordination">Examiner le périmètre ↗</button>
+        <div class="aq-service__aside">
+          <span class="aq-status">Sur étude · non ouvert</span>
+          <div class="aq-service__price"><small>Positionnement envisagé</small><strong>2 500 €</strong></div>
+          <button class="aq-program-button" data-program="coordination">Examiner le périmètre <span aria-hidden="true">↗</span></button>
         </div>
       </article>
 
-      <article class="ac-service">
-        <div class="ac-service__index">03</div>
-        <div class="ac-service__copy">
+      <article class="aq-service">
+        <div class="aq-service__number">03</div>
+        <div class="aq-service__body">
+          <span class="aq-service__phase">Complexité</span>
           <h3>Signature</h3>
           <p>Coordination humaine renforcée envisagée pour un projet plus complexe. Prestations réglementées et intervenants habilités contractualisés séparément.</p>
         </div>
-        <div class="ac-service__meta">
-          <span class="ac-status">Sur étude · non ouvert</span>
-          <span class="ac-price-label">Positionnement envisagé</span>
-          <div class="ac-price">5 000 €</div>
-          <button class="ac-program-button" data-program="signature">Examiner le périmètre ↗</button>
+        <div class="aq-service__aside">
+          <span class="aq-status">Sur étude · non ouvert</span>
+          <div class="aq-service__price"><small>Positionnement envisagé</small><strong>5 000 €</strong></div>
+          <button class="aq-program-button" data-program="signature">Examiner le périmètre <span aria-hidden="true">↗</span></button>
         </div>
       </article>
     </div>
+  </section>
 
-    <section class="ac-scope" aria-labelledby="scopeTitle">
-      <div>
-        <span class="atlas-kicker">Périmètre</span>
-        <h2 id="scopeTitle">Atlas ne remplace pas un professionnel habilité.</h2>
+  <section class="atlas-container aq-trust" aria-labelledby="scopeTitle">
+    <div class="aq-trust__statement">
+      <span class="aq-eyebrow">Ce que l’humain change</span>
+      <h2 id="scopeTitle">Le prix ne paierait pas l’accès à Atlas. Il paierait du temps humain, sur un périmètre écrit.</h2>
+    </div>
+    <div class="aq-trust__rules">
+      <div><span>01</span><p><strong>Libre-service préservé.</strong> Guide, roadmap et outils Atlas restent gratuits, avec les frais administratifs et professionnels éventuels à votre charge.</p></div>
+      <div><span>02</span><p><strong>Périmètre avant engagement.</strong> Contenu, fréquence, disponibilité et intervenants sont confirmés avant toute commercialisation.</p></div>
+      <div><span>03</span><p><strong>Professionnels habilités séparés.</strong> Lorsqu’un conseil juridique ou fiscal individualisé est nécessaire, il relève d’un avocat, fiscaliste ou professionnel habilité adapté au dossier.</p></div>
+    </div>
+  </section>
+
+  <section class="aq-close-stage" aria-labelledby="closeTitle">
+    <div class="atlas-container aq-close">
+      <div class="aq-close__proof" aria-hidden="true">
+        <div class="aq-close__cover-wrap"><img src="assets/atlas-v15-cover.webp" alt="" width="170" height="240" loading="lazy"></div>
+        <div class="aq-close__steps">
+          <span>Atlas USA</span>
+          <strong>Guide → Roadmap → Suivi</strong>
+          <div><i></i></div>
+          <small>Le parcours commence gratuitement.</small>
+        </div>
       </div>
-      <p>Le guide, la roadmap et les outils Atlas en libre-service restent gratuits. Les formats présentés ici supposent une intervention humaine. Lorsqu’un conseil juridique ou fiscal individualisé est nécessaire, le travail peut être coordonné avec votre avocat, votre fiscaliste ou un professionnel habilité sélectionné pour le dossier.</p>
-    </section>
+      <div class="aq-close__copy">
+        <span class="aq-overline">Commencer au bon endroit</span>
+        <h2 id="closeTitle">Avant de payer pour de l’humain, faites avancer le projet avec Atlas.</h2>
+        <p>Le meilleur accompagnement est parfois celui dont vous n’avez pas besoin. La roadmap permet d’abord de structurer le projet et de voir précisément où une intervention extérieure apporte une vraie valeur.</p>
+        <div class="atlas-actions">
+          <a class="atlas-button aq-button--gold" href="parcours-usa.html">Ouvrir ma roadmap →</a>
+          <a class="atlas-button aq-button--ghost" href="offres.html?countries=USA">Télécharger le guide</a>
+        </div>
+      </div>
+    </div>
   </section>
 </main>
 
