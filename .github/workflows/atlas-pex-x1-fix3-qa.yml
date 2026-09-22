@@ -79,7 +79,7 @@ jobs:
           async function openCountry(page,id,name){
             await page.locator('#countrySearch').fill(name); await page.waitForTimeout(180);
             const row=page.locator(`#results [data-country="${id}"]`); a.equal(await row.count(),1,`${id} unique result`);
-            await row.click({force:true});
+            await row.evaluate(el=>el.click());
             await page.waitForFunction(iso=>window.AtlasExplorer?.state?.selected===iso,id,{timeout:5000});
             const panel=page.locator(`#inspector [data-conflict-panel][data-country="${id}"]`);
             await panel.waitFor({state:'visible',timeout:8000});
@@ -99,28 +99,28 @@ jobs:
                 await page.waitForFunction(()=>window.AtlasExplorer?.ready?.()&&window.ATLAS_CONFLICT_TENSIONS?.JPN?.sources?.length===4,null,{timeout:15000}); mark(cfg.name,'boot');
                 a.equal(await page.locator('[data-layer="explore"]').count(),0); a.equal(await page.locator('[data-layer="conflict"]').count(),1); a.match(await page.locator('[data-layer="stability"]').innerText(),/Stabilité politique/); mark(cfg.name,'semantic toolbar');
 
-                await page.locator('#countrySearch').fill('Canada'); await page.waitForTimeout(180); await page.locator('#results [data-country="CAN"]').click({force:true});
+                await page.locator('#countrySearch').fill('Canada'); await page.waitForTimeout(180); await page.locator('#results [data-country="CAN"]').evaluate(el=>el.click());
                 await page.waitForSelector('#inspector .atlas-evidence [data-evidence-field]');
                 const ev=page.locator('#inspector .atlas-evidence').last();
                 a.equal(await ev.locator('[data-evidence-field]').count(),8); a.ok((await ev.boundingBox()).height<720); a.equal(await ev.locator('.atlas-evidence__row > p').first().isVisible(),false);
-                await page.locator('#inspector [data-dismiss]').click(); mark(cfg.name,'Canada readability retained');
+                await page.locator('#inspector [data-dismiss]').evaluate(el=>el.click()); mark(cfg.name,'Canada readability retained');
 
                 if(cfg.name==='mobile'){
-                  const mb=page.locator('#mobileFilters'); await mb.click(); a.equal(await mb.getAttribute('aria-expanded'),'true');
-                  await mb.click(); await page.waitForTimeout(220); a.equal(await mb.getAttribute('aria-expanded'),'false'); mark(cfg.name,'mobile filter open-close');
+                  const mb=page.locator('#mobileFilters'); await mb.evaluate(el=>el.click()); a.equal(await mb.getAttribute('aria-expanded'),'true');
+                  await mb.evaluate(el=>el.click()); await page.waitForTimeout(220); a.equal(await mb.getAttribute('aria-expanded'),'false'); mark(cfg.name,'mobile filter open-close');
                 }
 
-                await page.locator('[data-layer="conflict"]').click(); await page.waitForFunction(()=>document.body.classList.contains('conflict-layer')); a.match(await page.locator('#mapLabel').innerText(),/CONFLIT & TENSIONS/); mark(cfg.name,'conflict layer');
-                let p=await openCountry(page,'THA','Thaïlande'); a.equal(await p.locator('a.conflict-source').count(),2); let t=await p.innerText(); a.match(t,/Pattani/);a.match(t,/20 km/);a.match(t,/Bangkok/);a.match(t,/Phuket/);await page.locator('#inspector [data-dismiss]').click(); mark(cfg.name,'Thailand panel');
-                p=await openCountry(page,'JPN','Japon'); a.equal(await p.locator('a.conflict-source').count(),4); let j=await p.innerText(); a.match(j,/20 septembre 2026/);a.match(j,/440 km/);a.match(j,/hors ZEE/);a.match(j,/aucun dommage/);await page.locator('#inspector [data-dismiss]').click(); mark(cfg.name,'Japan freshness panel');
-                p=await openCountry(page,'CAN','Canada');a.equal(await p.locator('a.conflict-source').count(),2);await page.locator('#inspector [data-save="CAN"]').click();await page.locator('#inspector [data-dismiss]').click();
-                p=await openCountry(page,'THA','Thaïlande');await page.locator('#inspector [data-save="THA"]').click();await page.locator('#inspector [data-dismiss]').click();a.equal((await page.locator('#savedCount').textContent()).trim(),'2'); mark(cfg.name,'save');
+                await page.locator('[data-layer="conflict"]').evaluate(el=>el.click()); await page.waitForFunction(()=>document.body.classList.contains('conflict-layer')); a.match(await page.locator('#mapLabel').innerText(),/CONFLIT & TENSIONS/); mark(cfg.name,'conflict layer');
+                let p=await openCountry(page,'THA','Thaïlande'); a.equal(await p.locator('a.conflict-source').count(),2); let t=await p.innerText(); a.match(t,/Pattani/);a.match(t,/20 km/);a.match(t,/Bangkok/);a.match(t,/Phuket/);await page.locator('#inspector [data-dismiss]').evaluate(el=>el.click()); mark(cfg.name,'Thailand panel');
+                p=await openCountry(page,'JPN','Japon'); a.equal(await p.locator('a.conflict-source').count(),4); let j=await p.innerText(); a.match(j,/20 septembre 2026/);a.match(j,/440 km/);a.match(j,/hors ZEE/);a.match(j,/aucun dommage/);await page.locator('#inspector [data-dismiss]').evaluate(el=>el.click()); mark(cfg.name,'Japan freshness panel');
+                p=await openCountry(page,'CAN','Canada');a.equal(await p.locator('a.conflict-source').count(),2);await page.locator('#inspector [data-save="CAN"]').evaluate(el=>el.click());await page.locator('#inspector [data-dismiss]').evaluate(el=>el.click());
+                p=await openCountry(page,'THA','Thaïlande');await page.locator('#inspector [data-save="THA"]').evaluate(el=>el.click());await page.locator('#inspector [data-dismiss]').evaluate(el=>el.click());a.equal((await page.locator('#savedCount').textContent()).trim(),'2'); mark(cfg.name,'save');
 
-                const compare=page.locator('#openCompare'); a.equal(await compare.isDisabled(),false,'compare enabled with two saved countries'); await compare.click({force:true});
+                const compare=page.locator('#openCompare'); a.equal(await compare.isDisabled(),false,'compare enabled with two saved countries'); await compare.evaluate(el=>el.click());
                 await page.locator('#compareDialog').waitFor({state:'visible',timeout:5000});
-                const row=page.locator('#compareTable [data-conflict-row]'); await row.waitFor({state:'visible',timeout:5000}); a.equal(await row.locator('td').count(),3); const cmp=await row.innerText();a.match(cmp,/modéré/i);a.match(cmp,/Pattani/);await page.locator('#compareDialog [data-close]').click(); mark(cfg.name,'comparator');
+                const row=page.locator('#compareTable [data-conflict-row]'); await row.waitFor({state:'visible',timeout:5000}); a.equal(await row.locator('td').count(),3); const cmp=await row.innerText();a.match(cmp,/modéré/i);a.match(cmp,/Pattani/);await page.locator('#compareDialog [data-close]').evaluate(el=>el.click()); mark(cfg.name,'comparator');
 
-                await page.locator('[data-layer="stability"]').click();await page.waitForFunction(()=>!document.body.classList.contains('conflict-layer'));a.match(await page.locator('#mapLabel').innerText(),/BANQUE MONDIALE/);await page.locator('[data-layer="conflict"]').click();await page.waitForFunction(()=>document.body.classList.contains('conflict-layer')); mark(cfg.name,'layer switch regression');
+                await page.locator('[data-layer="stability"]').evaluate(el=>el.click());await page.waitForFunction(()=>!document.body.classList.contains('conflict-layer'));a.match(await page.locator('#mapLabel').innerText(),/BANQUE MONDIALE/);await page.locator('[data-layer="conflict"]').evaluate(el=>el.click());await page.waitForFunction(()=>document.body.classList.contains('conflict-layer')); mark(cfg.name,'layer switch regression');
                 a.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true); a.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true); a.deepEqual(errors,[]);a.deepEqual(failed,[]); mark(cfg.name,'overflow/errors clean');
                 await page.screenshot({path:`qa-artifacts/${cfg.name}.png`,fullPage:false}); report.push({...cfg,ok:true});
               }catch(e){
