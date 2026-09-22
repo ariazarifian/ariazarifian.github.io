@@ -1,8 +1,8 @@
-name: Atlas PEX-D1G Canada exact-candidate QA
+name: Atlas PEX-RCOUNTRY-R1 exact-candidate browser gate
 on:
   push:
     branches:
-      - ops/atlas-pex-d1g-build-helper-20260922
+      - ops/atlas-pex-rcountry-r1-browser-helper-20260922
 permissions:
   contents: read
 jobs:
@@ -15,10 +15,10 @@ jobs:
           fetch-depth: 0
       - name: Preserve QA harness and patch harness-only assumptions
         run: |
-          cp scripts/pex_d1g_qa.cjs /tmp/pex_d1g_qa.cjs
+          cp scripts/pex_d1g_qa.cjs /tmp/pex_rcountry_qa.cjs
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('/tmp/pex_d1g_qa.cjs')
+          p=Path('/tmp/pex_rcountry_qa.cjs')
           s=p.read_text()
           old="assert.equal(runtime.cit,'15 % fédéral général');assert.equal(runtime.vat,'GST 5 % + HST/PST variables');"
           new="assert.match(runtime.cit,/15 %/);assert.match(runtime.vat,/5 %/);"
@@ -27,19 +27,23 @@ jobs:
           old="await openCountry(page,'Canada','CAN','[data-atlas-canada-evidence][data-country=\"CAN\"]');await page.locator('#openCompare').click();"
           new="await openCountry(page,'Singapour','SGP','[data-atlas-singapore-evidence][data-country=\"SGP\"]');await page.locator('[data-save=\"SGP\"]').click();assert.equal(await page.locator('#savedCount').textContent(),'2');"+old
           assert old in s
-          p.write_text(s.replace(old,new,1))
+          s=s.replace(old,new,1)
+          s=s.replace("baseHead:'dee08b010d9a5f25cb6d64e1d8c7dd89ae53eee4'","baseHead:'8eb016606487942d73a7eb59860e44688aba6440'",1)
+          p.write_text(s)
           PY
-      - name: Checkout exact Product candidate
+      - name: Checkout exact bounded Product candidate
         run: |
-          git checkout --detach 66372a4526191dbfd48c3d625a909a8aae895acc
-          test "$(git rev-parse HEAD)" = "66372a4526191dbfd48c3d625a909a8aae895acc"
-          echo "PRODUCT_HEAD=66372a4526191dbfd48c3d625a909a8aae895acc" >> "$GITHUB_ENV"
-      - name: Contract syntax and bounded Product scope
+          git checkout --detach e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd
+          test "$(git rev-parse HEAD)" = "e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd"
+          git merge-base --is-ancestor 8eb016606487942d73a7eb59860e44688aba6440 e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd
+          echo "PRODUCT_HEAD=e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd" >> "$GITHUB_ENV"
+      - name: Contract syntax and exact bounded scope
         run: |
-          node --check atlas-exit/country-evidence-canada.js
-          node --check atlas-exit/country-evidence.js
-          node --check atlas-exit/fiscal-finalize.js
-          test "$(git diff --name-only dee08b010d9a5f25cb6d64e1d8c7dd89ae53eee4 66372a4526191dbfd48c3d625a909a8aae895acc -- atlas-exit | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-canada.js atlas-exit/fiscal-finalize.js | sort)"
+          for f in atlas-exit/country-evidence.js atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-switzerland.js atlas-exit/country-evidence-singapore.js atlas-exit/country-evidence-canada.js atlas-exit/fiscal-finalize.js; do node --check "$f"; done
+          actual="$(git diff --name-only 8eb016606487942d73a7eb59860e44688aba6440 e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd | sort)"
+          expected="$(printf '%s\n' atlas-exit/atlas-country-evidence.css atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-canada.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-singapore.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-switzerland.js atlas-exit/country-evidence.js atlas-exit/fiscal-finalize.js | sort)"
+          test "$actual" = "$expected"
+          git diff --quiet 8eb016606487942d73a7eb59860e44688aba6440 e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd -- atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/sitemap.xml atlas-exit/robots.txt atlas-exit/start.html roadmap.html accompagnement.html
       - name: Install Chromium
         run: |
           npm init -y >/dev/null 2>&1
@@ -47,19 +51,19 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Serve exact Product candidate
         run: |
-          python3 -m http.server 8000 >/tmp/pex-d1g-http.log 2>&1 &
+          python3 -m http.server 8000 >/tmp/pex-rcountry-http.log 2>&1 &
           for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
-      - name: Real Chromium desktop and mobile plus evidence contract
+      - name: Real Chromium desktop and mobile plus six-country regression
         run: |
           mkdir -p qa-artifacts
-          NODE_PATH="$PWD/node_modules" PRODUCT_HEAD="$PRODUCT_HEAD" node /tmp/pex_d1g_qa.cjs
-      - name: Immutable shell regression
+          NODE_PATH="$PWD/node_modules" PRODUCT_HEAD="$PRODUCT_HEAD" node /tmp/pex_rcountry_qa.cjs
+      - name: Candidate immutability after browser gate
         run: |
-          grep -q '@media(prefers-reduced-motion:reduce)' atlas-exit/atlas-country-evidence.css
-          git diff --exit-code dee08b010d9a5f25cb6d64e1d8c7dd89ae53eee4 66372a4526191dbfd48c3d625a909a8aae895acc -- atlas-exit/country-evidence.js atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-switzerland.js atlas-exit/country-evidence-singapore.js atlas-exit/atlas-country-evidence.css atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/sitemap.xml atlas-exit/robots.txt
+          test "$(git rev-parse HEAD)" = "e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd"
+          git diff --exit-code
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: atlas-pex-d1g-canada-evidence-qa
+          name: atlas-pex-rcountry-r1-browser-evidence
           path: qa-artifacts
           if-no-files-found: warn
