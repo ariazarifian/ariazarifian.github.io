@@ -1,0 +1,47 @@
+name: Atlas PEX-X1 bounded inspector fix
+on:
+  push:
+    branches: [ops/atlas-pex-x1-fix1-run-20260922]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pin exact Product head
+        run: |
+          git checkout -B ops/atlas-pex-x1-conflict-tensions-20260922 origin/ops/atlas-pex-x1-conflict-tensions-20260922
+          test "$(git rev-parse HEAD)" = "d67faffbef79bffc284aa94337f6b82bf078ce99"
+      - name: Fix inspector insertion at top level only
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('atlas-exit/conflict-tensions.js')
+          s=p.read_text()
+          old1="const governance=[...body.querySelectorAll('.detail-section')].find(x=>/INSTITUTIONS/.test(x.textContent));"
+          new1="const governance=[...body.children].find(x=>x.classList?.contains('detail-section')&&/INSTITUTIONS/.test(x.textContent));"
+          old2="const source=body.querySelector('.source-disclosure');"
+          new2="const source=[...body.children].find(x=>x.classList?.contains('source-disclosure'));"
+          assert s.count(old1)==1, s.count(old1)
+          assert s.count(old2)==1, s.count(old2)
+          s=s.replace(old1,new1).replace(old2,new2)
+          p.write_text(s)
+          PY
+          node --check atlas-exit/conflict-tensions.js
+          git diff --check
+          test "$(git diff --name-only)" = "atlas-exit/conflict-tensions.js"
+          grep -F "const governance=[...body.children]" atlas-exit/conflict-tensions.js
+          grep -F "const source=[...body.children]" atlas-exit/conflict-tensions.js
+      - name: Commit and push Product FIX1
+        run: |
+          git config user.name "ATLAS Product Executor"
+          git config user.email "actions@users.noreply.github.com"
+          git add atlas-exit/conflict-tensions.js
+          git commit -m "fix(atlas): keep conflict panel outside collapsed details"
+          NEW=$(git rev-parse HEAD)
+          echo "PRODUCT_FIX1=$NEW"
+          git push origin HEAD:refs/heads/ops/atlas-pex-x1-conflict-tensions-20260922
