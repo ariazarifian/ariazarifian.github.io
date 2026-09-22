@@ -1,0 +1,174 @@
+name: Atlas PEX-X1 live-base FIX2 build and browser QA
+on:
+  push:
+    branches: [ops/atlas-pex-x1-livebase-fix2-run-20260923]
+permissions:
+  contents: write
+jobs:
+  build-qa-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compose bounded Product candidate on current live
+        env:
+          LIVE_HEAD: 2064d6f96b80156d19973d2332ee9f652d5a57ef
+          SOURCE_HEAD: 7a58d04b240ab33cf75ffb0d1c823913833e373e
+          PRODUCT_BRANCH: ops/atlas-pex-x1-livebase-fix2-20260923
+        run: |
+          git fetch origin ops/atlas-pex-x1-conflict-tensions-20260922
+          git checkout --detach "$LIVE_HEAD"
+          git checkout -b "$PRODUCT_BRANCH"
+          git show "$SOURCE_HEAD:atlas-exit/conflict-tensions.css" > atlas-exit/conflict-tensions.css
+          git show "$SOURCE_HEAD:atlas-exit/conflict-tensions.js" > atlas-exit/conflict-tensions.js
+          git show "$SOURCE_HEAD:atlas-exit/index.html" > atlas-exit/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('atlas-exit/conflict-tensions.js')
+          s=p.read_text()
+          old="if(inspector)new MutationObserver(()=>{if(active)augmentInspector()}).observe(inspector,{childList:true});"
+          new="if(inspector)new MutationObserver(()=>{if(active)requestAnimationFrame(()=>augmentInspector())}).observe(inspector,{childList:true,subtree:true});"
+          if old not in s:
+              raise SystemExit('expected inspector observer not found')
+          p.write_text(s.replace(old,new))
+          PY
+          node --check atlas-exit/conflict-tensions.js
+          expected="$(printf '%s\n' atlas-exit/conflict-tensions.css atlas-exit/conflict-tensions.js atlas-exit/index.html | sort)"
+          actual="$(git diff --name-only "$LIVE_HEAD" | sort)"
+          test "$actual" = "$expected"
+          git diff --check "$LIVE_HEAD"
+          grep -F 'data-layer="conflict"' atlas-exit/index.html
+          ! grep -F 'data-layer="explore"' atlas-exit/index.html
+          grep -F 'Stabilité politique' atlas-exit/index.html
+          grep -F 'subtree:true' atlas-exit/conflict-tensions.js
+          git config user.name 'ATLAS Product Executor'
+          git config user.email 'actions@users.noreply.github.com'
+          git add atlas-exit/conflict-tensions.css atlas-exit/conflict-tensions.js atlas-exit/index.html
+          git commit -m 'fix(atlas): rebase PEX-X1 on live and stabilize conflict inspector'
+      - name: Validate conflict evidence contract in candidate bytes
+        run: |
+          node <<'JS'
+          const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+          global.window={};global.document={readyState:'loading',addEventListener(){}};
+          vm.runInThisContext(fs.readFileSync('atlas-exit/conflict-tensions.js','utf8'));
+          const d=window.ATLAS_CONFLICT_TENSIONS;
+          const expected={USA:'Faible',THA:'Modéré',AUS:'Modéré',ESP:'Modéré',JPN:'Modéré',CHE:'Faible',SGP:'Modéré',CAN:'Modéré'};
+          assert.deepEqual(Object.fromEntries(Object.entries(d).map(([k,v])=>[k,v.category])),expected);
+          assert.equal(d.THA.multi_source_required,true); assert.equal(d.JPN.multi_source_required,true);
+          assert.equal(d.THA.sources.length,2); assert.equal(d.JPN.sources.length,4);
+          assert.match(d.THA.geography,/Pattani/); assert.match(d.THA.geography,/20 km/);
+          assert.match(d.JPN.context,/20 septembre 2026/); assert.match(d.JPN.context,/440 km/);
+          assert.match(d.JPN.caveat,/hors ZEE/); assert.match(d.JPN.caveat,/aucun dommage/);
+          assert.match(d.JPN.sources[0].url,/2026\/09\/20e\.html/);
+          assert.match(d.JPN.sources[1].url,/2026\/0920a_r\.html/);
+          JS
+      - name: Install Chromium
+        run: |
+          mkdir -p /tmp/atlas-pw && cd /tmp/atlas-pw
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+      - name: Exact-candidate real-browser QA
+        run: |
+          mkdir -p qa-artifacts
+          python3 -m http.server 8000 >/tmp/atlas-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid || true' EXIT
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
+          cat >/tmp/x1-fix2.cjs <<'JS'
+          const {chromium}=require('/tmp/atlas-pw/node_modules/playwright');
+          const fs=require('fs'),assert=require('node:assert/strict');
+          const url='http://127.0.0.1:8000/atlas-exit/index.html';
+          const expected={THA:'Modéré',JPN:'Modéré',CAN:'Modéré'};
+          const report={head:null,base:'2064d6f96b80156d19973d2332ee9f652d5a57ef',viewports:[]};
+          async function openCountry(page,id,name){
+            await page.locator('#countrySearch').fill(name); await page.waitForTimeout(180);
+            const row=page.locator(`#results [data-country="${id}"]`); assert.equal(await row.count(),1,`${id} search result`);
+            await row.click({force:true});
+            await page.waitForFunction(iso=>window.AtlasExplorer?.state?.selected===iso,id,{timeout:5000});
+            const panel=page.locator(`#inspector [data-conflict-panel][data-country="${id}"]`);
+            await panel.waitFor({state:'visible',timeout:8000});
+            assert.equal(await panel.evaluate(el=>el.parentElement?.classList.contains('inspector-body')),true,`${id} panel direct inspector child`);
+            assert.equal((await panel.locator('.conflict-risk').textContent()).trim(),expected[id],`${id} category`);
+            return panel;
+          }
+          (async()=>{
+            const {execSync}=require('node:child_process'); report.head=execSync('git rev-parse HEAD').toString().trim();
+            const browser=await chromium.launch({headless:true});
+            for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
+              const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}}),page=await context.newPage();
+              const errors=[],failed=[];
+              page.on('pageerror',e=>errors.push(String(e)));
+              page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource|favicon/i.test(m.text()))errors.push('console: '+m.text())});
+              page.on('requestfailed',r=>{try{if(new URL(r.url()).origin===new URL(url).origin)failed.push(`${r.method()} ${r.url()} ${r.failure()?.errorText||''}`)}catch{}});
+              await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+              await page.waitForFunction(()=>window.AtlasExplorer?.ready?.()&&window.ATLAS_CONFLICT_TENSIONS?.JPN?.sources?.length===4,null,{timeout:15000});
+              assert.equal(await page.locator('[data-layer="explore"]').count(),0,'Découvrir layer removed');
+              assert.equal(await page.locator('[data-layer="conflict"]').count(),1,'conflict layer present');
+              assert.match((await page.locator('[data-layer="stability"]').textContent()).trim(),/Stabilité politique/,'stability label');
+              assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true,'Manrope loaded');
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'document overflow before interaction');
+              // Protect the just-shipped readability hotfix on the new live base.
+              await page.locator('#countrySearch').fill('Canada'); await page.waitForTimeout(180);
+              await page.locator('#results [data-country="CAN"]').click({force:true});
+              await page.waitForSelector('#inspector .atlas-evidence [data-evidence-field]');
+              const evidence=page.locator('#inspector .atlas-evidence').last();
+              assert.equal(await evidence.locator('[data-evidence-field]').count(),8,'Canada normalized evidence fields');
+              assert.ok((await evidence.boundingBox()).height<720,'Canada concise evidence height preserved');
+              assert.equal(await evidence.locator('.atlas-evidence__row > p').first().isVisible(),false,'Canada full summary hidden by default');
+              await page.locator('#inspector [data-dismiss]').click();
+              if(cfg.name==='mobile'){
+                await page.locator('#mobileFilters').click();
+                assert.equal(await page.locator('#mobileFilters').getAttribute('aria-expanded'),'true');
+              }
+              await page.locator('[data-layer="conflict"]').click();
+              await page.waitForFunction(()=>document.body.classList.contains('conflict-layer'));
+              assert.equal((await page.locator('#mapLabel').textContent()).trim(),'CONFLIT & TENSIONS · ÉTAT AU 22.09.2026');
+              let p=await openCountry(page,'THA','Thaïlande');
+              assert.equal(await p.locator('a.conflict-source').count(),2,'Thailand sources'); let t=await p.innerText(); assert.match(t,/Pattani/); assert.match(t,/20 km/); assert.match(t,/Bangkok/); assert.match(t,/Phuket/);
+              await page.locator('#inspector [data-dismiss]').click();
+              p=await openCountry(page,'JPN','Japon');
+              assert.equal(await p.locator('a.conflict-source').count(),4,'Japan sources'); let j=await p.innerText(); assert.match(j,/20 septembre 2026/); assert.match(j,/440 km/); assert.match(j,/hors ZEE/); assert.match(j,/aucun dommage/);
+              await page.locator('#inspector [data-dismiss]').click();
+              p=await openCountry(page,'CAN','Canada');
+              assert.equal(await p.locator('a.conflict-source').count(),2,'Canada sources');
+              await page.locator('#inspector [data-save="CAN"]').click(); await page.locator('#inspector [data-dismiss]').click();
+              p=await openCountry(page,'THA','Thaïlande'); await page.locator('#inspector [data-save="THA"]').click(); await page.locator('#inspector [data-dismiss]').click();
+              assert.equal((await page.locator('#savedCount').textContent()).trim(),'2','save regression');
+              await page.evaluate(()=>document.querySelector('#openCompare')?.click()); await page.locator('#compareDialog').waitFor({state:'visible'}); await page.waitForSelector('#compareTable [data-conflict-row]');
+              const cmp=await page.locator('#compareTable [data-conflict-row]').innerText(); assert.match(cmp,/Canada/); assert.match(cmp,/Thaïlande/); assert.match(cmp,/Modéré/); assert.match(cmp,/Pattani/);
+              await page.locator('#compareDialog [data-close]').click();
+              await page.locator('[data-layer="stability"]').click(); assert.equal(await page.evaluate(()=>document.body.classList.contains('conflict-layer')),false); assert.match(await page.locator('#mapLabel').textContent(),/BANQUE MONDIALE/);
+              await page.locator('[data-layer="conflict"]').click(); await page.waitForFunction(()=>document.body.classList.contains('conflict-layer'));
+              assert.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'inspector overflow');
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'document overflow after interaction');
+              await page.screenshot({path:`qa-artifacts/x1-fix2-${cfg.name}.png`,fullPage:false});
+              assert.deepEqual(errors,[],'browser errors'); assert.deepEqual(failed,[],'same-origin failures');
+              report.viewports.push({...cfg,errors,failed}); await context.close();
+            }
+            await browser.close(); fs.writeFileSync('qa-artifacts/report.json',JSON.stringify(report,null,2)); console.log(JSON.stringify(report,null,2));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          NODE_PATH=/tmp/atlas-pw/node_modules node /tmp/x1-fix2.cjs
+      - name: Push Product candidate only on PASS
+        env:
+          PRODUCT_BRANCH: ops/atlas-pex-x1-livebase-fix2-20260923
+          LIVE_HEAD: 2064d6f96b80156d19973d2332ee9f652d5a57ef
+        run: |
+          head=$(git rev-parse HEAD)
+          expected="$(printf '%s\n' atlas-exit/conflict-tensions.css atlas-exit/conflict-tensions.js atlas-exit/index.html | sort)"
+          actual="$(git diff --name-only "$LIVE_HEAD..$head" | sort)"
+          test "$actual" = "$expected"
+          git push origin "HEAD:refs/heads/$PRODUCT_BRANCH"
+          echo "PRODUCT_HEAD=$head" | tee qa-artifacts/product-head.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-x1-livebase-fix2
+          path: qa-artifacts
+          if-no-files-found: warn
