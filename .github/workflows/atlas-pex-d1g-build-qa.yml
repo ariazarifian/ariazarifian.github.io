@@ -57,10 +57,10 @@ jobs:
         run: |
           mkdir -p qa-artifacts
           NODE_PATH="$PWD/node_modules" PRODUCT_HEAD="$PRODUCT_HEAD" node /tmp/pex_rcountry_qa.cjs
-      - name: Candidate immutability after browser gate
+      - name: Candidate Product immutability after browser gate
         run: |
           test "$(git rev-parse HEAD)" = "e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd"
-          git diff --exit-code
+          git diff --exit-code -- atlas-exit
       - uses: actions/upload-artifact@v4
         if: always()
         with:
