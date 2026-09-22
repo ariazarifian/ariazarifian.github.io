@@ -1,0 +1,53 @@
+name: Atlas PEX-X1 d67 inspector diagnostic
+on:
+  push:
+    branches: [ops/atlas-pex-x1-conflict-tensions-qa-20260922]
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Pin exact candidate
+        run: |
+          git checkout --detach d67faffbef79bffc284aa94337f6b82bf078ce99
+          test "$(git rev-parse HEAD)" = d67faffbef79bffc284aa94337f6b82bf078ce99
+      - name: Install browser outside worktree
+        run: |
+          mkdir -p /tmp/x1qa
+          cd /tmp/x1qa
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null
+          ./node_modules/.bin/playwright install --with-deps chromium >/dev/null
+      - name: Diagnose real Chromium
+        run: |
+          git checkout --detach d67faffbef79bffc284aa94337f6b82bf078ce99
+          python3 -m http.server 8000 >/tmp/http.log 2>&1 &
+          for i in {1..20}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
+          cat >/tmp/diag.cjs <<'JS'
+          const {chromium}=require('/tmp/x1qa/node_modules/playwright');
+          const assert=require('node:assert/strict');
+          (async()=>{const b=await chromium.launch({headless:true});const p=await b.newPage({viewport:{width:1440,height:1000}});
+          await p.goto('http://127.0.0.1:8000/atlas-exit/index.html',{waitUntil:'domcontentloaded'});
+          await p.waitForFunction(()=>window.AtlasExplorer?.ready?.()&&window.ATLAS_CONFLICT_TENSIONS?.THA);
+          await p.locator('[data-layer="conflict"]').click();
+          await p.locator('#countrySearch').fill('Thaïlande');await p.waitForTimeout(200);
+          const row=p.locator('[data-country="THA"]');await row.click({force:true});
+          await p.waitForFunction(()=>window.AtlasExplorer?.state?.selected==='THA');
+          await p.waitForSelector('#inspector [data-conflict-panel][data-country="THA"]',{state:'attached',timeout:5000});
+          const diag=await p.evaluate(()=>{const i=document.querySelector('#inspector'),x=document.querySelector('#inspector [data-conflict-panel]'),chain=[];for(let n=x;n;n=n.parentElement){const s=getComputedStyle(n),r=n.getBoundingClientRect();chain.push({tag:n.tagName,id:n.id,cls:n.className,hidden:n.hidden,display:s.display,visibility:s.visibility,opacity:s.opacity,w:r.width,h:r.height,top:r.top,bottom:r.bottom})}return{state:window.AtlasExplorer.state,inspectorHidden:i.hidden,inspectorVisible:!!(i.offsetWidth||i.offsetHeight||i.getClientRects().length),panelVisible:!!(x.offsetWidth||x.offsetHeight||x.getClientRects().length),chain};});
+          console.log('DIAG',JSON.stringify(diag,null,2));
+          assert.equal(diag.inspectorHidden,false);assert.equal(diag.inspectorVisible,true);assert.equal(diag.panelVisible,true);
+          await b.close();})().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          node /tmp/diag.cjs
+      - name: Worktree immutable
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = d67faffbef79bffc284aa94337f6b82bf078ce99
+          git diff --quiet
