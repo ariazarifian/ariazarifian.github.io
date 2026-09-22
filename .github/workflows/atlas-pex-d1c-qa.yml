@@ -1,0 +1,175 @@
+name: Atlas PEX-D1C Spain evidence QA
+on:
+  push:
+    branches: [ops/atlas-pex-d1c-spain-20260922]
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Contract fidelity and bounded scope
+        env:
+          PRODUCT_HEAD: 3d00bbdc4a9fd375da0bdab40355a0906222bb96
+          BASE_HEAD: c2be6f834b2c8b8978e645cb7e055591def9b00d
+        run: |
+          git checkout --detach "$PRODUCT_HEAD"
+          node --check atlas-exit/country-evidence-spain.js
+          node --check atlas-exit/country-evidence-australia.js
+          node --check atlas-exit/country-evidence.js
+          node --check atlas-exit/fiscal-finalize.js
+          node - <<'JS'
+          const assert=require('node:assert/strict');
+          const core=require('./atlas-exit/country-evidence.js');
+          const tha=core.countries.THA;
+          require('./atlas-exit/country-evidence-australia.js');
+          const aus=globalThis.ATLAS_COUNTRY_EVIDENCE.countries.AUS;
+          require('./atlas-exit/country-evidence-spain.js');
+          const e=globalThis.ATLAS_COUNTRY_EVIDENCE;
+          const esp=e.countries.ESP;
+          assert.ok(esp,'Spain must be published through normalized API');
+          assert.equal(esp.integrationState,'published');
+          assert.equal(e.validateCountry(esp).ok,true);
+          assert.deepEqual(Object.keys(esp.fields),e.requiredFields);
+          const expectedStates={tax_residency:'READY_WITH_CAVEAT',pit:'READY_WITH_CAVEAT',cit_business:'READY_WITH_CAVEAT',consumption_tax:'READY_FOR_PRODUCT',cost_context:'READY_WITH_CAVEAT',residence_visa:'READY_WITH_CAVEAT',healthcare:'READY_WITH_CAVEAT',safety_context:'READY_FOR_PRODUCT'};
+          for(const [key,state] of Object.entries(expectedStates)) assert.equal(esp.fields[key].state,state,key);
+          const expectedCounts={tax_residency:1,pit:1,cit_business:1,consumption_tax:1,cost_context:1,residence_visa:2,healthcare:1,safety_context:1};
+          for(const [key,count] of Object.entries(expectedCounts)) assert.equal(e.sourcesFor(esp.fields[key]).length,count,key);
+          assert.deepEqual(e.sourcesFor(esp.fields.residence_visa).map(s=>s.locator),[
+            'https://administracion.gob.es/tu-espacio-europeo/derechos-obligaciones/ciudadanos/residencia/obtencion-residencia/info-general',
+            'https://administracion.gob.es/tu-espacio-europeo/derechos-obligaciones/ciudadanos/residencia/obtencion-residencia/inscribirte-residente'
+          ]);
+          assert.equal(esp.fields.pit.structure.allInScalarForbidden,true);
+          assert.deepEqual(esp.fields.pit.structure.layers,['state','autonomous_community']);
+          assert.equal(esp.fields.pit.structure.stateGeneralRates.at(-1),24.5);
+          assert.equal(esp.fields.cit_business.structure.generalRate,25);
+          assert.equal(esp.fields.cit_business.structure.microEnterprise.firstRate,19);
+          assert.equal(esp.fields.cit_business.structure.microEnterprise.remainderRate,21);
+          assert.equal(esp.fields.cit_business.structure.qualifyingReducedDimensionRate,23);
+          assert.equal(esp.fields.consumption_tax.structure.standardRate,21);
+          assert.equal(esp.fields.cost_context.structure.expatBudget,false);
+          assert.equal(esp.fields.residence_visa.structure.workVisaRequired,false);
+          assert.equal(esp.fields.residence_visa.structure.registrationDeadlineMonthsAfterEntry,3);
+          assert.equal(esp.fields.residence_visa.structure.immigrationResidenceIsNotTaxResidence,true);
+          assert.equal(esp.fields.healthcare.structure.ehicIsNotResidentEntitlement,true);
+          assert.equal(esp.fields.safety_context.structure.scalarScoreForbidden,true);
+          assert.deepEqual(esp.existingContext.legacyTaxContext.excludedFrom,['inspector','comparator']);
+          assert.equal(e.countries.THA,tha,'Thailand object identity must remain untouched');
+          assert.equal(e.countries.AUS,aus,'Australia object identity must remain untouched');
+          console.log('PEX-D1C normalized Spain contract PASS');
+          JS
+          test "$(git diff --name-only "$BASE_HEAD" "$PRODUCT_HEAD" -- atlas-exit | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-spain.js atlas-exit/fiscal-finalize.js | sort)"
+          git diff --exit-code "$BASE_HEAD" "$PRODUCT_HEAD" -- atlas-exit/country-evidence.js atlas-exit/country-evidence-australia.js atlas-exit/atlas-country-evidence.css atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/catalog.js atlas-exit/commerce-data.js atlas-exit/tax-additions.js atlas-exit/corporate-world.js atlas-exit/consumption-world.js atlas-exit/sitemap.xml atlas-exit/robots.txt
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact Product candidate
+        run: |
+          git checkout --detach 3d00bbdc4a9fd375da0bdab40355a0906222bb96
+          python3 -m http.server 8000 >/tmp/pex-d1c-http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
+      - name: Real Chrome desktop and mobile
+        run: |
+          mkdir -p qa-artifacts
+          cat >/tmp/qa.cjs <<'JS'
+          const {chromium}=require('playwright');
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const url='http://127.0.0.1:8000/atlas-exit/index.html';
+          const report={productHead:'3d00bbdc4a9fd375da0bdab40355a0906222bb96',baseHead:'c2be6f834b2c8b8978e645cb7e055591def9b00d',viewports:[],errors:[]};
+          (async()=>{
+            const browser=await chromium.launch({headless:true});
+            for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
+              const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}});
+              const page=await context.newPage();
+              const errors=[];
+              page.on('pageerror',e=>errors.push(String(e)));
+              page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource/i.test(m.text()))errors.push('console: '+m.text())});
+              await page.goto(url,{waitUntil:'domcontentloaded'});
+              await page.waitForFunction(()=>document.querySelector('#resultCount')?.textContent&&!/Chargement/.test(document.querySelector('#resultCount').textContent),null,{timeout:15000});
+              await page.waitForFunction(()=>window.ATLAS_COUNTRY_EVIDENCE?.countries?.ESP?.integrationState==='published',null,{timeout:10000});
+              assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true);
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+              const z0=await page.locator('#zoomValue').textContent();
+              await page.locator('#zoomIn').click(); await page.waitForTimeout(100);
+              const z1=await page.locator('#zoomValue').textContent(); assert.notEqual(z0,z1);
+              if(cfg.name==='mobile'){await page.locator('#mobileFilters').click();assert.equal(await page.locator('#mobileFilters').getAttribute('aria-expanded'),'true');}
+              const runtime=await page.evaluate(()=>{const c=window.AtlasExplorer.getCountries().find(x=>x.id==='ESP');return {tax:c.tax,label:c.taxLabel,scope:c.scope,year:c.taxYear,note:c.note,taxStore:window.ATLAS_TAX.ESP.tax,bootstrap:window.ATLAS_FISCAL_FINALIZE.countryEvidenceBootstrap};});
+              assert.equal(runtime.tax,null); assert.equal(runtime.taxStore,null); assert.equal(runtime.label,'État + communauté'); assert.match(runtime.scope,/barème étatique \+ barème autonome/); assert.doesNotMatch(runtime.note,/48,58/); assert.equal(runtime.bootstrap,'pex-d1c-1');
+              await page.locator('#countrySearch').fill('Espagne'); await page.waitForTimeout(80);
+              assert.equal(await page.locator('[data-country="ESP"]').count(),1);
+              await page.locator('#taxRange').evaluate(el=>{el.value='40';el.dispatchEvent(new Event('input',{bubbles:true}));}); await page.waitForTimeout(80);
+              assert.equal(await page.locator('[data-country="ESP"]').count(),0,'non-scalar Spain must not enter numeric <=40 filter');
+              await page.locator('#taxRange').evaluate(el=>{el.value='60';el.dispatchEvent(new Event('input',{bubbles:true}));}); await page.waitForTimeout(80);
+              assert.equal(await page.locator('[data-country="ESP"]').count(),1);
+              await page.locator('[data-country="ESP"]').click({force:true});
+              await page.waitForSelector('[data-atlas-spain-evidence][data-country="ESP"]');
+              const panel=page.locator('[data-atlas-spain-evidence][data-country="ESP"]');
+              assert.equal(await panel.locator('[data-evidence-field]').count(),8);
+              assert.equal(await panel.locator('a.detail-source').count(),9);
+              assert.equal(await panel.locator('[data-source-count="2"]').count(),1);
+              const residenceHrefs=await panel.locator('[data-evidence-field="residence_visa"] a.detail-source').evaluateAll(a=>a.map(x=>x.href));
+              assert.deepEqual(residenceHrefs,[
+                'https://administracion.gob.es/tu-espacio-europeo/derechos-obligaciones/ciudadanos/residencia/obtencion-residencia/info-general',
+                'https://administracion.gob.es/tu-espacio-europeo/derechos-obligaciones/ciudadanos/residencia/obtencion-residencia/inscribirte-residente'
+              ]);
+              const states=await panel.locator('[data-evidence-state]').evaluateAll(rows=>rows.map(x=>x.getAttribute('data-evidence-state')));
+              assert.equal(states.filter(x=>x==='READY_WITH_CAVEAT').length,6);
+              assert.equal(states.filter(x=>x==='READY_FOR_PRODUCT').length,2);
+              const text=await panel.innerText();
+              assert.match(text,/État \+ communauté autonome/); assert.match(text,/25 % général/); assert.match(text,/21 % standard/); assert.match(text,/35 101 €/); assert.match(text,/Libre circulation UE/); assert.match(text,/CEAM/); assert.doesNotMatch(text,/Non documenté|À documenter|48,58/i);
+              assert.equal(await page.locator('.tax-stack').evaluate(el=>el.hidden),true,'legacy inspector tax stack hidden for ESP');
+              assert.equal(await page.locator('.source-disclosure').evaluate(el=>el.hidden),true,'legacy tax source disclosure hidden for ESP');
+              const oldResidence=page.locator('.detail-section[data-atlas-legacy-reconciled="ESP"]');
+              assert.ok(await oldResidence.count()>=1,'generic residence primer reconciled');
+              assert.equal(await oldResidence.first().evaluate(el=>el.hidden),true);
+              const box=await page.locator('#inspector').boundingBox(); assert.ok(box&&box.x>=-1&&box.y>=-1&&box.x+box.width<=cfg.width+1&&box.y+box.height<=cfg.height+1);
+              await page.locator('[data-save="ESP"]').click(); assert.equal(await page.locator('#savedCount').textContent(),'1');
+              await page.locator('[data-dismiss]').click();
+              await page.locator('#countrySearch').fill('Australie'); await page.waitForTimeout(80); await page.locator('[data-country="AUS"]').click({force:true});
+              await page.waitForSelector('[data-atlas-australia-evidence][data-country="AUS"]');
+              const aus=page.locator('[data-atlas-australia-evidence][data-country="AUS"]');
+              assert.equal(await aus.locator('[data-evidence-field]').count(),8); assert.equal(await aus.locator('a.detail-source').count(),11);
+              await page.locator('[data-save="AUS"]').click(); assert.equal(await page.locator('#savedCount').textContent(),'2');
+              await page.locator('#openCompare').click(); await page.locator('#compareDialog').waitFor({state:'visible'}); await page.waitForTimeout(100);
+              const compare=await page.locator('#compareTable').innerText();
+              assert.match(compare,/Espagne/); assert.match(compare,/État \+ communauté autonome/); assert.match(compare,/25 % général/); assert.match(compare,/21 % standard/); assert.match(compare,/Australie/); assert.match(compare,/15–45 %/); assert.doesNotMatch(compare,/48,58/);
+              assert.ok(await page.locator('#compareTable [data-atlas-normalized="ESP"]').count()>=5);
+              assert.ok(await page.locator('#compareTable [data-atlas-normalized="AUS"]').count()>=5);
+              await page.locator('#compareDialog [data-close]').click();
+              await page.locator('[data-dismiss]').click();
+              await page.locator('#countrySearch').fill('Thaïlande'); await page.waitForTimeout(80); await page.locator('[data-country="THA"]').click({force:true});
+              await page.waitForSelector('[data-atlas-evidence-panel][data-country="THA"]');
+              const tha=page.locator('[data-atlas-evidence-panel][data-country="THA"]');
+              assert.equal(await tha.locator('[data-evidence-field]').count(),8); assert.equal(await tha.locator('a.detail-source').count(),8);
+              await page.screenshot({path:`qa-artifacts/pex-d1c-${cfg.name}.png`,fullPage:false});
+              const full=await page.screenshot({path:`qa-artifacts/pex-d1c-${cfg.name}-full.png`,fullPage:true});
+              report.viewports.push({name:cfg.name,width:cfg.width,height:cfg.height,zoom:[z0,z1],runtime,fields:8,sourceLinks:9,multiSourceGroups:1,inspector:box,fullScreenshotBytes:full.length});
+              report.errors.push(...errors.map(x=>`${cfg.name}: ${x}`)); assert.deepEqual(errors,[]);
+              await context.close();
+            }
+            await browser.close();
+            fs.writeFileSync('qa-artifacts/pex-d1c-report.json',JSON.stringify(report,null,2));
+            console.log(JSON.stringify(report,null,2));
+          })().catch(e=>{fs.writeFileSync('qa-artifacts/pex-d1c-error.txt',String(e?.stack||e));console.error(e);process.exit(1)});
+          JS
+          NODE_PATH="$PWD/node_modules" node /tmp/qa.cjs
+      - name: Reduced motion and immutable shell
+        run: |
+          grep -q '@media(prefers-reduced-motion:reduce)' atlas-exit/atlas-country-evidence.css
+          git diff --exit-code c2be6f834b2c8b8978e645cb7e055591def9b00d 3d00bbdc4a9fd375da0bdab40355a0906222bb96 -- atlas-exit/country-evidence.js atlas-exit/country-evidence-australia.js atlas-exit/atlas-country-evidence.css atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/catalog.js atlas-exit/commerce-data.js atlas-exit/tax-additions.js atlas-exit/corporate-world.js atlas-exit/consumption-world.js atlas-exit/sitemap.xml atlas-exit/robots.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-d1c-spain-evidence-qa
+          path: qa-artifacts
+          if-no-files-found: error
