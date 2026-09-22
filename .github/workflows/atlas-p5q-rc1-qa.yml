@@ -1,0 +1,93 @@
+name: Atlas P5Q-RC1 synthetic composition QA
+on:
+  push:
+    branches: ['qa/atlas-p5q-rc1-synthetic-20260922']
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact Product composition and bounded scope
+        env:
+          PRODUCT_HEAD: f7be94781368b898e598d5363fd16986230fd9bd
+          BASE_HEAD: 8eb016606487942d73a7eb59860e44688aba6440
+        run: |
+          cp qa/atlas-p5q-rc1.cjs /tmp/atlas-p5q-rc1.cjs
+          git cat-file -e "$PRODUCT_HEAD^{commit}"
+          actual="$(git diff --name-only "$BASE_HEAD" "$PRODUCT_HEAD" | sort)"
+          expected="$(printf '%s\n' \
+            atlas-exit/accompagnement.html \
+            atlas-exit/atlas-country-evidence.css \
+            atlas-exit/atlas-ui-accompagnement.css \
+            atlas-exit/atlas-ui-guide.css \
+            atlas-exit/atlas-ui-roadmap.css \
+            atlas-exit/country-evidence-australia.js \
+            atlas-exit/country-evidence-japan.js \
+            atlas-exit/country-evidence-spain.js \
+            atlas-exit/country-evidence-switzerland.js \
+            atlas-exit/country-evidence.js \
+            atlas-exit/fiscal-finalize.js \
+            atlas-exit/offres.html \
+            atlas-exit/parcours-usa.html | sort)"
+          test "$actual" = "$expected"
+          ! printf '%s\n' "$actual" | grep -q 'singapore'
+          test "$(git rev-list --count "$BASE_HEAD..$PRODUCT_HEAD")" = "6"
+          git checkout --detach "$PRODUCT_HEAD"
+          node --check atlas-exit/country-evidence.js
+          node --check atlas-exit/country-evidence-australia.js
+          node --check atlas-exit/country-evidence-spain.js
+          node --check atlas-exit/country-evidence-japan.js
+          node --check atlas-exit/country-evidence-switzerland.js
+          node --check atlas-exit/fiscal-finalize.js
+          node --check atlas-exit/parcours-usa.js
+          mkdir -p qa-artifacts
+          {
+            echo "PRODUCT_HEAD=$PRODUCT_HEAD"
+            echo "BASE_HEAD=$BASE_HEAD"
+            echo "PRODUCT_COMMITS=$(git rev-list --count "$BASE_HEAD..$PRODUCT_HEAD")"
+            echo "ALLOWLIST_BEGIN"
+            printf '%s\n' "$actual"
+            echo "ALLOWLIST_END"
+            echo "FINAL_BLOBS_BEGIN"
+            for f in $actual; do printf '%s %s\n' "$(git rev-parse "$PRODUCT_HEAD:$f")" "$f"; done
+            echo "FINAL_BLOBS_END"
+          } > qa-artifacts/composition-manifest.txt
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact Product head
+        run: |
+          git checkout --detach f7be94781368b898e598d5363fd16986230fd9bd
+          python3 -m http.server 8000 >/tmp/p5q-rc1-http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8000/atlas-exit/offres.html >/dev/null
+          curl -fsS http://127.0.0.1:8000/atlas-exit/parcours-usa.html >/dev/null
+          curl -fsS http://127.0.0.1:8000/atlas-exit/accompagnement.html >/dev/null
+      - name: Real Chromium — Explorer, Guide, Roadmap, Accompagnement
+        run: |
+          mkdir -p qa-artifacts
+          NODE_PATH="$PWD/node_modules" node /tmp/atlas-p5q-rc1.cjs
+      - name: Verify synthetic commit chain
+        run: |
+          test "$(git show -s --format=%P 5313da80651760ded1b4605aa2e1a1842da0c228)" = "8eb016606487942d73a7eb59860e44688aba6440"
+          test "$(git show -s --format=%P 89b29f93e7ed0945691373d968fe928d4f7af7c0)" = "5313da80651760ded1b4605aa2e1a1842da0c228"
+          test "$(git show -s --format=%P e72a0b3df6599c6763f6fae7ef56f9f76e4d1884)" = "89b29f93e7ed0945691373d968fe928d4f7af7c0"
+          test "$(git show -s --format=%P 117c34e3e2d1974bf405cbe996c878a45a1fdb42)" = "e72a0b3df6599c6763f6fae7ef56f9f76e4d1884"
+          test "$(git show -s --format=%P f55695025d3d2c5fdc9c8b5db14ca0105df849ba)" = "117c34e3e2d1974bf405cbe996c878a45a1fdb42"
+          test "$(git show -s --format=%P f7be94781368b898e598d5363fd16986230fd9bd)" = "f55695025d3d2c5fdc9c8b5db14ca0105df849ba"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-p5q-rc1-synthetic-composition-qa
+          path: qa-artifacts
+          if-no-files-found: error
