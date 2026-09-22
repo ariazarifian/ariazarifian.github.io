@@ -1,0 +1,135 @@
+name: Atlas P6-E3R Roadmap address-change QA
+on:
+  push:
+    branches: [ops/atlas-p6e3r-roadmap-address-p5q-20260922]
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bounded content contract
+        env:
+          PRODUCT_HEAD: ce8f17c3a1caefe99999f2d489a6f68332df98f2
+          BASE_HEAD: ad334891a22d927d5a5e354670434cb8bb33cd61
+        run: |
+          git checkout --detach "$PRODUCT_HEAD"
+          test "$(git diff --name-only "$BASE_HEAD" "$PRODUCT_HEAD" -- atlas-exit)" = "atlas-exit/parcours-usa.html"
+          git diff --exit-code "$BASE_HEAD" "$PRODUCT_HEAD" -- atlas-exit/parcours-usa.js atlas-exit/atlas-events.js atlas-exit/atlas-ui.css atlas-exit/atlas-ui-roadmap.css atlas-exit/index.html atlas-exit/offres.html atlas-exit/accompagnement.html
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('atlas-exit/parcours-usa.html').read_text()
+          new="SSN/ITIN/EIN selon le profil, téléphone et premiers comptes. La plupart des non-citoyens doivent signaler à USCIS chaque changement d’adresse dans les 10 jours ; USPS ne met pas USCIS à jour."
+          old="SSN/ITIN/EIN selon le profil, téléphone, adresse et premiers comptes nécessaires."
+          assert p.count(new)==1, p.count(new)
+          assert old not in p
+          assert p.count('data-card-step=')==8
+          assert p.count('data-step=')==8
+          assert '<link rel="canonical" href="https://atlas-expat.fr/parcours-usa.html">' in p
+          print('P6-E3R bounded copy contract PASS')
+          PY
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact Product candidate
+        run: |
+          git checkout --detach ce8f17c3a1caefe99999f2d489a6f68332df98f2
+          python3 -m http.server 8000 >/tmp/p6e3r-http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/parcours-usa.html >/dev/null && break; sleep 1; done
+      - name: Real Chromium desktop and mobile
+        run: |
+          mkdir -p qa-artifacts
+          cat >/tmp/p6e3r.cjs <<'JS'
+          const {chromium}=require('playwright');
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const url='http://127.0.0.1:8000/atlas-exit/parcours-usa.html';
+          const expected='SSN/ITIN/EIN selon le profil, téléphone et premiers comptes. La plupart des non-citoyens doivent signaler à USCIS chaque changement d’adresse dans les 10 jours ; USPS ne met pas USCIS à jour.';
+          const report={productHead:'ce8f17c3a1caefe99999f2d489a6f68332df98f2',baseHead:'ad334891a22d927d5a5e354670434cb8bb33cd61',viewports:[],errors:[]};
+          (async()=>{
+            const browser=await chromium.launch({headless:true});
+            for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
+              const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}});
+              await context.addInitScript(()=>{localStorage.clear();});
+              const page=await context.newPage();
+              const errors=[];
+              page.on('pageerror',e=>errors.push(String(e)));
+              page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource/i.test(m.text()))errors.push('console: '+m.text())});
+              await page.goto(url,{waitUntil:'domcontentloaded'});
+              await page.waitForFunction(()=>document.querySelectorAll('[data-step]').length===8);
+              assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true);
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+              assert.equal(await page.locator('link[rel="canonical"]').getAttribute('href'),'https://atlas-expat.fr/parcours-usa.html');
+              assert.equal(await page.locator('[data-card-step]').count(),8);
+              assert.equal(await page.locator('[data-step]').count(),8);
+              const identity=page.locator('[data-card-step="identity"]');
+              assert.equal((await identity.locator('p').first().innerText()).trim(),expected);
+              await identity.scrollIntoViewIfNeeded();
+              const ibox=await identity.boundingBox();
+              assert.ok(ibox && ibox.x>=-1 && ibox.x+ibox.width<=cfg.width+1,'identity card must fit viewport width');
+              assert.equal(await page.locator('#doneCount').textContent(),'0');
+
+              await page.locator('#profile').selectOption('business');
+              await page.locator('#horizon').selectOption('3-6');
+              await page.locator('#city').fill('New York');
+              await page.locator('#priority').selectOption('tax');
+              await page.locator('#routeForm button[type="submit"]').click();
+              await page.waitForFunction(()=>!document.querySelector('#routeSummary').hidden);
+              const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('atlas_usa_route_v3')));
+              assert.equal(saved.answers.profile,'business');
+              assert.equal(saved.answers.city,'New York');
+              assert.equal(await page.locator('#doneCount').textContent(),'0');
+
+              const boxes=page.locator('[data-step]');
+              for(let i=0;i<3;i++) await boxes.nth(i).check();
+              assert.equal(await page.locator('#doneCount').textContent(),'3');
+              assert.equal(await page.evaluate(()=>Object.values(JSON.parse(localStorage.getItem('atlas_usa_route_v3')).steps).filter(Boolean).length),3);
+
+              await page.reload({waitUntil:'domcontentloaded'});
+              await page.waitForFunction(()=>document.querySelector('#doneCount')?.textContent==='3');
+              assert.equal((await page.locator('#resumeRoute').textContent()).trim(),'Reprendre à l’étape 4 →');
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+              assert.equal((await page.locator('[data-card-step="identity"] p').first().innerText()).trim(),expected);
+
+              for(let i=3;i<8;i++) await page.locator('[data-step]').nth(i).check();
+              assert.equal(await page.locator('#doneCount').textContent(),'8');
+              await page.reload({waitUntil:'domcontentloaded'});
+              await page.waitForFunction(()=>document.querySelector('#doneCount')?.textContent==='8');
+              assert.equal((await page.locator('#resumeRoute').textContent()).trim(),'Revoir ma roadmap →');
+
+              await page.locator('#resetRoute').click();
+              assert.equal(await page.locator('#doneCount').textContent(),'0');
+              assert.equal(await page.locator('#routeSummary').evaluate(el=>el.hidden),true);
+              assert.equal(await page.evaluate(()=>localStorage.getItem('atlas_usa_route_v3')),null);
+              assert.equal(await page.evaluate(()=>localStorage.getItem('atlas_usa_qep_v1')),null);
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+
+              await identity.scrollIntoViewIfNeeded();
+              await page.screenshot({path:`qa-artifacts/p6e3r-${cfg.name}-identity.png`,fullPage:false});
+              await page.screenshot({path:`qa-artifacts/p6e3r-${cfg.name}-full.png`,fullPage:true});
+              report.viewports.push({name:cfg.name,width:cfg.width,height:cfg.height,steps:8,identity:ibox,lifecycle:'0→save→3→reload→8→reload→reset'});
+              report.errors.push(...errors.map(x=>`${cfg.name}: ${x}`));
+              assert.deepEqual(errors,[]);
+              await context.close();
+            }
+            await browser.close();
+            fs.writeFileSync('qa-artifacts/p6e3r-report.json',JSON.stringify(report,null,2));
+            console.log(JSON.stringify(report,null,2));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          NODE_PATH="$PWD/node_modules" node /tmp/p6e3r.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-p6e3r-roadmap-address-qa
+          path: qa-artifacts
+          if-no-files-found: error
