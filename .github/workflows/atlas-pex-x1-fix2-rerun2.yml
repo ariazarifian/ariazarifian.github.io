@@ -1,0 +1,68 @@
+name: Atlas PEX-X1 FIX2 rerun2
+on:
+  push:
+    branches: [ops/atlas-pex-x1-fix2-rerun2-20260923]
+permissions:
+  contents: write
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Compose exact bounded candidate
+        env:
+          LIVE: 2064d6f96b80156d19973d2332ee9f652d5a57ef
+          SRC: 7a58d04b240ab33cf75ffb0d1c823913833e373e
+        run: |
+          git checkout --detach "$LIVE"
+          git checkout -b ops/atlas-pex-x1-livebase-fix2-20260923
+          git show "${SRC}:atlas-exit/conflict-tensions.css" > atlas-exit/conflict-tensions.css
+          git show "${SRC}:atlas-exit/conflict-tensions.js" > atlas-exit/conflict-tensions.js
+          git show "${SRC}:atlas-exit/index.html" > atlas-exit/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('atlas-exit/conflict-tensions.js'); s=p.read_text()
+          old="if(inspector)new MutationObserver(()=>{if(active)augmentInspector()}).observe(inspector,{childList:true});"
+          new="if(inspector)new MutationObserver(()=>{if(active)requestAnimationFrame(()=>augmentInspector())}).observe(inspector,{childList:true,subtree:true});"
+          assert old in s; p.write_text(s.replace(old,new))
+          PY
+          git add atlas-exit/conflict-tensions.css atlas-exit/conflict-tensions.js atlas-exit/index.html
+          test "$(git diff --cached --name-only "$LIVE" | sort)" = "$(printf '%s\n' atlas-exit/conflict-tensions.css atlas-exit/conflict-tensions.js atlas-exit/index.html | sort)"
+          git diff --cached --check "$LIVE"
+          node --check atlas-exit/conflict-tensions.js
+          grep -F 'data-layer="conflict"' atlas-exit/index.html
+          ! grep -F 'data-layer="explore"' atlas-exit/index.html
+          grep -F 'Stabilité politique' atlas-exit/index.html
+          git config user.name 'ATLAS Product Executor'; git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'fix(atlas): ship PEX-X1 conflict signal on readability live base'
+      - name: Evidence contract
+        run: |
+          node <<'JS'
+          const fs=require('fs'),vm=require('vm'),a=require('assert/strict'); global.window={};global.document={readyState:'loading',addEventListener(){}};vm.runInThisContext(fs.readFileSync('atlas-exit/conflict-tensions.js','utf8'));const d=window.ATLAS_CONFLICT_TENSIONS;
+          a.deepEqual(Object.fromEntries(Object.entries(d).map(([k,v])=>[k,v.category])),{USA:'Faible',THA:'Modéré',AUS:'Modéré',ESP:'Modéré',JPN:'Modéré',CHE:'Faible',SGP:'Modéré',CAN:'Modéré'});a.equal(d.THA.sources.length,2);a.equal(d.JPN.sources.length,4);a.equal(d.THA.multi_source_required,true);a.equal(d.JPN.multi_source_required,true);a.match(d.THA.geography,/Pattani/);a.match(d.JPN.context,/20 septembre 2026/);a.match(d.JPN.context,/440 km/);a.match(d.JPN.caveat,/hors ZEE/);a.match(d.JPN.caveat,/aucun dommage/);
+          JS
+      - name: Install Chromium
+        run: |
+          mkdir -p /tmp/pw && cd /tmp/pw && npm init -y >/dev/null 2>&1 && npm i --no-save playwright@1.55.0 >/dev/null && npx playwright install --with-deps chromium >/dev/null
+      - name: Desktop/mobile browser gate
+        run: |
+          mkdir -p qa-artifacts; python3 -m http.server 8000 >/tmp/http.log 2>&1 & pid=$!; trap 'kill $pid || true' EXIT
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
+          cat >/tmp/qa.cjs <<'JS'
+          const {chromium}=require('/tmp/pw/node_modules/playwright'),a=require('assert/strict'),fs=require('fs'); const u='http://127.0.0.1:8000/atlas-exit/index.html';
+          async function open(p,id,n){await p.locator('#countrySearch').fill(n);await p.waitForTimeout(150);await p.locator(`#results [data-country="${id}"]`).click({force:true});await p.waitForFunction(x=>AtlasExplorer.state.selected===x,id);const q=p.locator(`#inspector [data-conflict-panel][data-country="${id}"]`);await q.waitFor({state:'visible'});a.equal(await q.evaluate(e=>e.parentElement.classList.contains('inspector-body')),true);return q}
+          (async()=>{const b=await chromium.launch({headless:true}),rep=[];for(const c of [{n:'desktop',w:1440,h:1000},{n:'mobile',w:390,h:844}]){const x=await b.newContext({viewport:{width:c.w,height:c.h}}),p=await x.newPage(),errs=[],fails=[];p.on('pageerror',e=>errs.push(String(e)));p.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource|favicon/i.test(m.text()))errs.push(m.text())});p.on('requestfailed',r=>{try{if(new URL(r.url()).origin===new URL(u).origin)fails.push(r.url())}catch{}});await p.goto(u);await p.waitForFunction(()=>AtlasExplorer?.ready?.()&&ATLAS_CONFLICT_TENSIONS?.JPN?.sources?.length===4);a.equal(await p.locator('[data-layer="explore"]').count(),0);a.match(await p.locator('[data-layer="stability"]').innerText(),/Stabilité politique/);a.equal(await p.locator('[data-layer="conflict"]').count(),1);
+          await p.locator('#countrySearch').fill('Canada');await p.waitForTimeout(150);await p.locator('#results [data-country="CAN"]').click({force:true});await p.waitForSelector('#inspector .atlas-evidence [data-evidence-field]');const ev=p.locator('#inspector .atlas-evidence').last();a.equal(await ev.locator('[data-evidence-field]').count(),8);a.ok((await ev.boundingBox()).height<720);a.equal(await ev.locator('.atlas-evidence__row > p').first().isVisible(),false);await p.locator('#inspector [data-dismiss]').click();if(c.n==='mobile'){await p.locator('#mobileFilters').click();a.equal(await p.locator('#mobileFilters').getAttribute('aria-expanded'),'true')}
+          await p.locator('[data-layer="conflict"]').click();await p.waitForFunction(()=>document.body.classList.contains('conflict-layer'));let q=await open(p,'THA','Thaïlande');a.equal(await q.locator('a.conflict-source').count(),2);let t=await q.innerText();a.match(t,/Pattani/);a.match(t,/20 km/);a.match(t,/Bangkok/);a.match(t,/Phuket/);await p.locator('#inspector [data-dismiss]').click();q=await open(p,'JPN','Japon');a.equal(await q.locator('a.conflict-source').count(),4);let j=await q.innerText();a.match(j,/20 septembre 2026/);a.match(j,/440 km/);a.match(j,/hors ZEE/);a.match(j,/aucun dommage/);await p.locator('#inspector [data-dismiss]').click();q=await open(p,'CAN','Canada');a.equal(await q.locator('a.conflict-source').count(),2);await p.locator('#inspector [data-save="CAN"]').click();await p.locator('#inspector [data-dismiss]').click();q=await open(p,'THA','Thaïlande');await p.locator('#inspector [data-save="THA"]').click();await p.locator('#inspector [data-dismiss]').click();a.equal((await p.locator('#savedCount').textContent()).trim(),'2');await p.evaluate(()=>document.querySelector('#openCompare')?.click());const r=p.locator('#compareTable [data-conflict-row]');await r.waitFor();a.equal(await r.locator('td').count(),3);const s=await r.innerText();a.match(s,/modéré/i);a.match(s,/Pattani/);await p.locator('#compareDialog [data-close]').click();await p.locator('[data-layer="stability"]').click();a.equal(await p.evaluate(()=>document.body.classList.contains('conflict-layer')),false);a.match(await p.locator('#mapLabel').innerText(),/BANQUE MONDIALE/);await p.locator('[data-layer="conflict"]').click();a.equal(await p.locator('#inspector').evaluate(e=>e.scrollWidth<=e.clientWidth+1),true);a.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);a.deepEqual(errs,[]);a.deepEqual(fails,[]);await p.screenshot({path:`qa-artifacts/${c.n}.png`});rep.push(c);await x.close()}await b.close();fs.writeFileSync('qa-artifacts/report.json',JSON.stringify(rep));})().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          node /tmp/qa.cjs
+      - name: Push exact Product candidate after PASS
+        env:
+          LIVE: 2064d6f96b80156d19973d2332ee9f652d5a57ef
+        run: |
+          head=$(git rev-parse HEAD); test "$(git diff --name-only "$LIVE..$head" | sort)" = "$(printf '%s\n' atlas-exit/conflict-tensions.css atlas-exit/conflict-tensions.js atlas-exit/index.html | sort)"; git push -f origin HEAD:refs/heads/ops/atlas-pex-x1-livebase-fix2-20260923; echo "$head" > qa-artifacts/product-head.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: atlas-pex-x1-fix2-rerun2, path: qa-artifacts, if-no-files-found: warn}
