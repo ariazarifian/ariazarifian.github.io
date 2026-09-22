@@ -20,9 +20,17 @@ jobs:
           PRODUCT_HEAD: a749226db7eba39c2711ec34bec07624d8a8acc9
           RC1_HEAD: f7be94781368b898e598d5363fd16986230fd9bd
           BASE_HEAD: 8eb016606487942d73a7eb59860e44688aba6440
+          RC1_QA_HEAD: 5fa7c784a10f2f5048ba68d8aa644309f59c49ec
+          D1F_QA_HEAD: b577aef14ad7b41b8cc3e44cf2bbe720782209f7
         run: |
-          cp qa/atlas-p5q-rc2.cjs /tmp/atlas-p5q-rc2.cjs
           git cat-file -e "$PRODUCT_HEAD^{commit}"
+          git cat-file -e "$RC1_QA_HEAD^{commit}"
+          git cat-file -e "$D1F_QA_HEAD^{commit}"
+          git show "$RC1_QA_HEAD:qa/atlas-p5q-rc1.cjs" > /tmp/atlas-p5q-rc1.cjs
+          git show "$D1F_QA_HEAD:scripts/pex_d1f_qa.cjs" > /tmp/pex-d1f-qa.cjs
+          sed -i 's/f7be94781368b898e598d5363fd16986230fd9bd/a749226db7eba39c2711ec34bec07624d8a8acc9/g' /tmp/atlas-p5q-rc1.cjs
+          sed -i 's/dee08b010d9a5f25cb6d64e1d8c7dd89ae53eee4/a749226db7eba39c2711ec34bec07624d8a8acc9/g' /tmp/pex-d1f-qa.cjs
+          sed -i 's/a9ff48e53dff3bba3eb4d1311396c483fd87fd70/f7be94781368b898e598d5363fd16986230fd9bd/g' /tmp/pex-d1f-qa.cjs
           test "$(git show -s --format=%P "$PRODUCT_HEAD")" = "$RC1_HEAD"
           delta="$(git diff --name-only "$RC1_HEAD" "$PRODUCT_HEAD" | sort)"
           expected_delta="$(printf '%s\n' atlas-exit/country-evidence-singapore.js atlas-exit/fiscal-finalize.js | sort)"
@@ -90,10 +98,13 @@ jobs:
           curl -fsS http://127.0.0.1:8000/atlas-exit/offres.html >/dev/null
           curl -fsS http://127.0.0.1:8000/atlas-exit/parcours-usa.html >/dev/null
           curl -fsS http://127.0.0.1:8000/atlas-exit/accompagnement.html >/dev/null
-      - name: Real Chromium — Explorer, Guide, Roadmap, Accompagnement
+      - name: Real Chromium — Singapore evidence fidelity
         run: |
           mkdir -p qa-artifacts
-          NODE_PATH="$PWD/node_modules" node /tmp/atlas-p5q-rc2.cjs
+          NODE_PATH="$PWD/node_modules" node /tmp/pex-d1f-qa.cjs
+      - name: Real Chromium — Explorer, Guide, Roadmap, Accompagnement regressions
+        run: |
+          NODE_PATH="$PWD/node_modules" node /tmp/atlas-p5q-rc1.cjs
       - name: Verify synthetic chain extension
         run: |
           test "$(git show -s --format=%P a749226db7eba39c2711ec34bec07624d8a8acc9)" = "f7be94781368b898e598d5363fd16986230fd9bd"
