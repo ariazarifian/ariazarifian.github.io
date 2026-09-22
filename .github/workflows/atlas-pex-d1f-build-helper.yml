@@ -1,0 +1,39 @@
+name: Atlas PEX-D1F Singapore build helper
+on:
+  push:
+    branches: [ops/atlas-pex-d1f-build-helper-20260922]
+permissions:
+  contents: write
+jobs:
+  patch-product:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve helper inputs and switch to Product branch
+        run: |
+          cat scripts/pex_d1f/01-header-tax.js scripts/pex_d1f/02-business-cost.js scripts/pex_d1f/03-status.js scripts/pex_d1f/04-ui.js > /tmp/country-evidence-singapore.js
+          cp scripts/pex_d1f_patch.py /tmp/pex_d1f_patch.py
+          git fetch origin ops/atlas-pex-d1f-singapore-20260922
+          git checkout -B ops/atlas-pex-d1f-singapore-20260922 origin/ops/atlas-pex-d1f-singapore-20260922
+      - name: Build and validate Product files
+        run: |
+          cp /tmp/country-evidence-singapore.js atlas-exit/country-evidence-singapore.js
+          python3 /tmp/pex_d1f_patch.py
+          node --check atlas-exit/fiscal-finalize.js
+          node --check atlas-exit/country-evidence-singapore.js
+          git diff --check
+          test "$(git diff --name-only HEAD -- atlas-exit | sort)" = $'atlas-exit/country-evidence-singapore.js\natlas-exit/fiscal-finalize.js'
+          test "$(grep -o "state:'READY_FOR_PRODUCT'" atlas-exit/country-evidence-singapore.js | wc -l)" -eq 8
+          test "$(grep -o 'https://' atlas-exit/country-evidence-singapore.js | wc -l)" -eq 10
+          grep -q "countryEvidenceBootstrap:'pex-d1f-1'" atlas-exit/fiscal-finalize.js
+      - name: Commit exact Product patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add atlas-exit/country-evidence-singapore.js atlas-exit/fiscal-finalize.js
+          git commit -m 'PEX-D1F normalize Singapore evidence in Explorer'
+          git push origin HEAD:refs/heads/ops/atlas-pex-d1f-singapore-20260922
+          echo "PRODUCT_HEAD=$(git rev-parse HEAD)"
