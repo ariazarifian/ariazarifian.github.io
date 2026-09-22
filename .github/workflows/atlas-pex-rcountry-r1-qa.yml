@@ -1,0 +1,166 @@
+name: Atlas PEX-RCOUNTRY-R1 exact candidate QA
+on:
+  push:
+    branches: [ops/atlas-pex-rcountry-r1-qa-20260922]
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact bounded Product candidate
+        env:
+          BASE_HEAD: 8eb016606487942d73a7eb59860e44688aba6440
+          PRODUCT_HEAD: e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd
+        run: |
+          git checkout --detach "$PRODUCT_HEAD"
+          expected="$(printf '%s\n' \
+            atlas-exit/atlas-country-evidence.css \
+            atlas-exit/country-evidence-australia.js \
+            atlas-exit/country-evidence-canada.js \
+            atlas-exit/country-evidence-japan.js \
+            atlas-exit/country-evidence-singapore.js \
+            atlas-exit/country-evidence-spain.js \
+            atlas-exit/country-evidence-switzerland.js \
+            atlas-exit/country-evidence.js \
+            atlas-exit/fiscal-finalize.js | sort)"
+          actual="$(git diff --name-only "$BASE_HEAD" "$PRODUCT_HEAD" | sort)"
+          test "$actual" = "$expected"
+          test -z "$(git diff --name-only "$BASE_HEAD" "$PRODUCT_HEAD" -- .github)"
+          for f in atlas-exit/country-evidence.js atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-switzerland.js atlas-exit/country-evidence-singapore.js atlas-exit/country-evidence-canada.js atlas-exit/fiscal-finalize.js; do node --check "$f"; done
+          node - <<'JS'
+          const assert=require('node:assert/strict');
+          require('./atlas-exit/country-evidence.js');
+          for(const file of ['australia','spain','japan','switzerland','singapore','canada']) require(`./atlas-exit/country-evidence-${file}.js`);
+          const e=globalThis.ATLAS_COUNTRY_EVIDENCE;
+          assert.ok(e);
+          for(const iso of ['AUS','ESP','JPN','CHE','SGP','CAN']){
+            const c=e.countries[iso];
+            assert.ok(c,iso);
+            assert.equal(c.integrationState,'published',iso);
+            assert.equal(e.validateCountry(c).ok,true,iso);
+            assert.deepEqual(Object.keys(c.fields),e.requiredFields,iso);
+            for(const key of e.requiredFields){
+              const field=c.fields[key];
+              assert.ok(field.state && !/MISSING|HOLD/.test(field.state),`${iso}:${key}:state`);
+              assert.ok(e.sourcesFor(field).length>=1,`${iso}:${key}:source`);
+              for(const s of e.sourcesFor(field)) assert.match(s.locator,/^https:\/\//,`${iso}:${key}:locator`);
+            }
+          }
+          assert.equal(e.countries.ESP.fields.pit.structure.allInScalarForbidden,true);
+          assert.equal(e.countries.CHE.fields.pit.structure.allInScalarForbidden,true);
+          assert.equal(e.countries.CAN.fields.pit.structure.allInScalarForbidden,true);
+          console.log('normalized country contract PASS');
+          JS
+      - name: D1R-9 accepted-static-train gate on exact release bytes
+        env:
+          PRODUCT_HEAD: e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd
+        run: |
+          git checkout --detach "$PRODUCT_HEAD"
+          git fetch origin f009354ed24cdec6441480e23c742e99883b83b9 e300f3a6c5e942f836f9356e187c7c00ffe65532
+          git show f009354ed24cdec6441480e23c742e99883b83b9:atlas-ops/qa/d1r9-crawl-index-contract.json > /tmp/d1r9-crawl-index-contract.json
+          git show e300f3a6c5e942f836f9356e187c7c00ffe65532:atlas-ops/qa/d1r9-crawl-index-qa.mjs > /tmp/d1r9-crawl-index-qa.mjs
+          mkdir -p qa-artifacts
+          set +e
+          node /tmp/d1r9-crawl-index-qa.mjs --root "$PWD" --profile accepted-static-train --contract /tmp/d1r9-crawl-index-contract.json --report qa-artifacts/d1r9-report.json
+          code=$?
+          set -e
+          echo "D1R9_EXIT=$code" >> "$GITHUB_ENV"
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact Product candidate
+        run: |
+          git checkout --detach e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd
+          python3 -m http.server 8000 >/tmp/atlas-http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
+      - name: Real Chrome Explorer desktop and mobile
+        run: |
+          mkdir -p qa-artifacts
+          cat >/tmp/rcountry-qa.cjs <<'JS'
+          const {chromium}=require('playwright');
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const url='http://127.0.0.1:8000/atlas-exit/index.html';
+          const countries=[['AUS','Australie'],['ESP','Espagne'],['JPN','Japon'],['CHE','Suisse'],['SGP','Singapour'],['CAN','Canada']];
+          const report={productHead:'e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd',baseHead:'8eb016606487942d73a7eb59860e44688aba6440',viewports:[],errors:[]};
+          (async()=>{
+            const browser=await chromium.launch({headless:true});
+            for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
+              const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}});
+              const page=await context.newPage();
+              const errors=[];
+              page.on('pageerror',e=>errors.push(String(e)));
+              page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource/i.test(m.text()))errors.push('console: '+m.text())});
+              await page.goto(url,{waitUntil:'domcontentloaded'});
+              await page.waitForFunction(()=>document.querySelector('#resultCount')?.textContent&&!/Chargement/.test(document.querySelector('#resultCount').textContent),null,{timeout:15000});
+              await page.waitForFunction(()=>['AUS','ESP','JPN','CHE','SGP','CAN'].every(x=>window.ATLAS_COUNTRY_EVIDENCE?.countries?.[x]?.integrationState==='published'),null,{timeout:15000});
+              assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true);
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+              const z0=await page.locator('#zoomValue').textContent();
+              await page.locator('#zoomIn').click(); await page.waitForTimeout(80);
+              const z1=await page.locator('#zoomValue').textContent(); assert.notEqual(z0,z1);
+              if(cfg.name==='mobile'){
+                await page.locator('#mobileFilters').click();
+                assert.equal(await page.locator('#mobileFilters').getAttribute('aria-expanded'),'true');
+              }
+              const runtime=await page.evaluate(()=>({
+                tax:Object.fromEntries(['AUS','ESP','JPN','CHE','SGP','CAN'].map(id=>{const c=window.AtlasExplorer.getCountries().find(x=>x.id===id);return [id,{tax:c?.tax,taxLabel:c?.taxLabel,scope:c?.scope}]})),
+                evidence:Object.fromEntries(['AUS','ESP','JPN','CHE','SGP','CAN'].map(id=>{const e=window.ATLAS_COUNTRY_EVIDENCE,c=e.countries[id];return [id,{valid:e.validateCountry(c).ok,fields:Object.keys(c.fields).length,sources:Object.values(c.fields).reduce((n,f)=>n+e.sourcesFor(f).length,0),multi:Object.values(c.fields).filter(f=>e.sourcesFor(f).length>1).length}]}))
+              }));
+              assert.equal(runtime.tax.ESP.tax,null); assert.equal(runtime.tax.CHE.tax,null); assert.equal(runtime.tax.CAN.tax,null);
+              assert.equal(runtime.tax.AUS.tax,45); assert.equal(runtime.tax.JPN.tax,45); assert.equal(runtime.tax.SGP.tax,24);
+              for(const [iso,name] of countries){
+                assert.equal(runtime.evidence[iso].valid,true,iso);
+                assert.equal(runtime.evidence[iso].fields,8,iso);
+                assert.ok(runtime.evidence[iso].sources>=8,iso);
+                await page.locator('#countrySearch').fill(name); await page.waitForTimeout(100);
+                const row=page.locator(`[data-country="${iso}"]`); assert.equal(await row.count(),1,iso);
+                await row.scrollIntoViewIfNeeded(); await row.click({force:true});
+                await page.waitForSelector('#inspector [data-evidence-field]',{timeout:8000});
+                assert.equal(await page.locator('#inspector [data-evidence-field]').count(),8,`${iso}:inspector fields`);
+                assert.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,`${iso}:inspector overflow`);
+                const box=await page.locator('#inspector').boundingBox(); assert.ok(box&&box.x>=-1&&box.x+box.width<=cfg.width+1,`${iso}:inspector bounds`);
+                await page.locator('#inspector [data-dismiss]').click();
+              }
+              await page.locator('#countrySearch').fill('Australie'); await page.waitForTimeout(80);
+              await page.locator('[data-save="AUS"]').click();
+              await page.locator('#countrySearch').fill('Canada'); await page.waitForTimeout(80);
+              await page.locator('[data-save="CAN"]').click();
+              assert.equal(await page.locator('#savedCount').textContent(),'2');
+              await page.locator('#openCompare').click(); await page.locator('#compareDialog').waitFor({state:'visible'}); await page.waitForTimeout(80);
+              const compare=await page.locator('#compareTable').innerText(); assert.match(compare,/Australie/); assert.match(compare,/Canada/); assert.match(compare,/Fédéral \+ province|province\/territoire/i);
+              await page.locator('#compareDialog [data-close]').click();
+              await page.locator('#countrySearch').fill('Thaïlande'); await page.waitForTimeout(80);
+              await page.locator('[data-country="THA"]').scrollIntoViewIfNeeded(); await page.locator('[data-country="THA"]').click({force:true});
+              await page.waitForSelector('#inspector [data-evidence-field]');
+              assert.equal(await page.locator('#inspector [data-evidence-field]').count(),8,'Thailand regression');
+              await page.screenshot({path:`qa-artifacts/rcountry-${cfg.name}.png`,fullPage:false});
+              await page.screenshot({path:`qa-artifacts/rcountry-${cfg.name}-full.png`,fullPage:true});
+              report.viewports.push({name:cfg.name,width:cfg.width,height:cfg.height,zoom:[z0,z1],runtime});
+              report.errors.push(...errors.map(x=>`${cfg.name}: ${x}`)); assert.deepEqual(errors,[]);
+              await context.close();
+            }
+            await browser.close();
+            fs.writeFileSync('qa-artifacts/rcountry-browser-report.json',JSON.stringify(report,null,2));
+            console.log(JSON.stringify(report,null,2));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          NODE_PATH="$PWD/node_modules" node /tmp/rcountry-qa.cjs
+      - name: Enforce D1R-9 release gate
+        run: test "${D1R9_EXIT:-1}" = 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-rcountry-r1-exact-candidate-qa
+          path: qa-artifacts
+          if-no-files-found: error
