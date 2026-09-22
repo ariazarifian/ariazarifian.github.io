@@ -1,0 +1,94 @@
+name: Atlas PEX-RCOUNTRY-R1 live smoke
+on:
+  push:
+    branches: [ops/atlas-pex-rcountry-r1-qa-20260922]
+permissions:
+  contents: read
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for exact served bytes
+        env:
+          PRODUCT_HEAD: e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd
+          LIVE: https://atlas-expat.fr
+        run: |
+          git checkout --detach "$PRODUCT_HEAD"
+          mkdir -p qa-artifacts /tmp/live-bytes
+          files=(atlas-country-evidence.css country-evidence-australia.js country-evidence-canada.js country-evidence-japan.js country-evidence-singapore.js country-evidence-spain.js country-evidence-switzerland.js country-evidence.js fiscal-finalize.js)
+          success=0
+          : > qa-artifacts/live-byte-hashes.txt
+          for attempt in $(seq 1 60); do
+            all=1
+            : > /tmp/hashes.txt
+            for f in "${files[@]}"; do
+              git show "$PRODUCT_HEAD:atlas-exit/$f" > "/tmp/candidate-$f"
+              cand=$(sha256sum "/tmp/candidate-$f" | awk '{print $1}')
+              if ! curl -fsS --max-time 15 "$LIVE/$f?atlas_qa=$GITHUB_RUN_ID-$attempt" -o "/tmp/live-bytes/$f"; then
+                all=0; live="FETCH_FAIL"
+              else
+                live=$(sha256sum "/tmp/live-bytes/$f" | awk '{print $1}')
+                [ "$cand" = "$live" ] || all=0
+              fi
+              printf '%s candidate=%s live=%s\n' "$f" "$cand" "$live" >> /tmp/hashes.txt
+            done
+            if [ "$all" = 1 ]; then cp /tmp/hashes.txt qa-artifacts/live-byte-hashes.txt; success=1; break; fi
+            sleep 5
+          done
+          cat /tmp/hashes.txt
+          test "$success" = 1
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Live desktop mobile browser and network smoke
+        env:
+          LIVE: https://atlas-expat.fr/
+        run: |
+          cat >/tmp/live-smoke.cjs <<'JS'
+          const {chromium}=require('playwright'),fs=require('node:fs'),assert=require('node:assert/strict');
+          const base=process.env.LIVE, countries=[['AUS','Australie'],['ESP','Espagne'],['JPN','Japon'],['CHE','Suisse'],['SGP','Singapour'],['CAN','Canada']];
+          const report={productHead:'e87f4882a010d51b7d7cbd83fb11a7c75e3a16bd',rollbackHead:'8eb016606487942d73a7eb59860e44688aba6440',live:base,viewports:[],errors:[]};
+          async function openCountry(page,iso,name){await page.locator('#countrySearch').fill(name);await page.waitForTimeout(100);assert.equal(await page.locator(`#results [data-country="${iso}"]`).count(),1,iso);await page.evaluate(id=>document.querySelector(`#results [data-country="${id}"]`)?.click(),iso);await page.waitForSelector('#inspector [data-evidence-field]',{timeout:10000});}
+          (async()=>{const browser=await chromium.launch({headless:true});
+            for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
+              const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}}),page=await context.newPage(),errors=[],failed=[];
+              page.on('pageerror',e=>errors.push(String(e)));
+              page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource|favicon/i.test(m.text()))errors.push('console: '+m.text())});
+              page.on('requestfailed',r=>{try{if(new URL(r.url()).origin===new URL(base).origin)failed.push(`${r.method()} ${r.url()} ${r.failure()?.errorText||''}`)}catch{}});
+              await page.goto(`${base}?atlas_qa=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:30000});
+              await page.waitForFunction(()=>window.AtlasExplorer?.ready?.()===true,null,{timeout:20000});
+              await page.waitForFunction(()=>['AUS','ESP','JPN','CHE','SGP','CAN'].every(x=>window.ATLAS_COUNTRY_EVIDENCE?.countries?.[x]?.integrationState==='published'),null,{timeout:20000});
+              assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true,'Manrope');
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'page overflow');
+              await page.evaluate(()=>document.querySelector('[data-layer="tax"]')?.click());assert.equal(await page.evaluate(()=>window.AtlasExplorer.state.layer),'tax');
+              await page.evaluate(()=>document.querySelector('[data-layer="explore"]')?.click());assert.equal(await page.evaluate(()=>window.AtlasExplorer.state.layer),'explore');
+              const z0=await page.locator('#zoomValue').textContent();await page.evaluate(()=>document.querySelector('#zoomIn')?.click());await page.waitForTimeout(80);const z1=await page.locator('#zoomValue').textContent();assert.notEqual(z0,z1,'zoom');
+              await page.evaluate(()=>document.querySelector('#regions [data-region="Europe"]')?.click());await page.waitForTimeout(80);assert.equal(await page.locator('#results [data-country="ESP"]').count(),1);assert.equal(await page.locator('#results [data-country="AUS"]').count(),0);await page.evaluate(()=>document.querySelector('#regions [data-region="all"]')?.click());
+              await page.locator('#taxRange').evaluate(el=>{el.value='25';el.dispatchEvent(new Event('input',{bubbles:true}))});await page.waitForTimeout(80);assert.equal(await page.locator('#results [data-country="AUS"]').count(),0);assert.equal(await page.locator('#results [data-country="SGP"]').count(),1);await page.evaluate(()=>window.AtlasExplorer.resetFilters());
+              if(cfg.name==='mobile'){await page.evaluate(()=>document.querySelector('#mobileFilters')?.click());assert.equal(await page.locator('#mobileFilters').getAttribute('aria-expanded'),'true');await page.evaluate(()=>document.querySelector('#mobileFilters')?.click());}
+              for(const[iso,name]of countries){await openCountry(page,iso,name);assert.equal(await page.locator('#inspector [data-evidence-field]').count(),8,`${iso} fields`);assert.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,`${iso} overflow`);await page.evaluate(()=>document.querySelector('#inspector [data-dismiss]')?.click());}
+              for(const[iso,name]of[['AUS','Australie'],['CAN','Canada']]){await openCountry(page,iso,name);await page.evaluate(id=>document.querySelector(`#inspector [data-save="${id}"]`)?.click(),iso);await page.evaluate(()=>document.querySelector('#inspector [data-dismiss]')?.click());}
+              assert.equal(await page.locator('#savedCount').textContent(),'2');await page.evaluate(()=>document.querySelector('#openCompare')?.click());await page.locator('#compareDialog').waitFor({state:'visible'});const txt=await page.locator('#compareTable').innerText();assert.match(txt,/Australie/);assert.match(txt,/Canada/);assert.match(txt,/Fédéral \+ province|province\/territoire/i);await page.evaluate(()=>document.querySelector('#compareDialog [data-close]')?.click());
+              await openCountry(page,'THA','Thaïlande');assert.equal(await page.locator('#inspector [data-evidence-field]').count(),8,'THA regression');
+              await page.screenshot({path:`qa-artifacts/live-${cfg.name}.png`,fullPage:false});await page.screenshot({path:`qa-artifacts/live-${cfg.name}-full.png`,fullPage:true});
+              assert.deepEqual(errors,[],'browser errors');assert.deepEqual(failed,[],'same-origin network failures');report.viewports.push({name:cfg.name,width:cfg.width,height:cfg.height,zoom:[z0,z1]});report.errors.push(...errors,...failed);await context.close();
+            }
+            await browser.close();fs.writeFileSync('qa-artifacts/live-smoke-report.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          NODE_PATH="$PWD/node_modules" node /tmp/live-smoke.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-rcountry-r1-live-smoke
+          path: qa-artifacts
+          if-no-files-found: error
