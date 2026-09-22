@@ -1,0 +1,105 @@
+name: Atlas P5Q-RC2 Singapore synthetic composition QA
+on:
+  push:
+    branches: ['qa/atlas-p5q-rc2-singapore-20260922']
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact Product composition, transplant identity and bounded scope
+        env:
+          PRODUCT_HEAD: a749226db7eba39c2711ec34bec07624d8a8acc9
+          RC1_HEAD: f7be94781368b898e598d5363fd16986230fd9bd
+          BASE_HEAD: 8eb016606487942d73a7eb59860e44688aba6440
+        run: |
+          cp qa/atlas-p5q-rc2.cjs /tmp/atlas-p5q-rc2.cjs
+          git cat-file -e "$PRODUCT_HEAD^{commit}"
+          test "$(git show -s --format=%P "$PRODUCT_HEAD")" = "$RC1_HEAD"
+          delta="$(git diff --name-only "$RC1_HEAD" "$PRODUCT_HEAD" | sort)"
+          expected_delta="$(printf '%s\n' atlas-exit/country-evidence-singapore.js atlas-exit/fiscal-finalize.js | sort)"
+          test "$delta" = "$expected_delta"
+          test "$(git rev-parse "$PRODUCT_HEAD:atlas-exit/country-evidence-singapore.js")" = "e2a05e09378ed76fc517ce41181a61a8c0416ca1"
+          test "$(git rev-parse "$PRODUCT_HEAD:atlas-exit/fiscal-finalize.js")" = "54185dad0942f658ff9b44a2b6acec40c7c5b481"
+          actual="$(git diff --name-only "$BASE_HEAD" "$PRODUCT_HEAD" | sort)"
+          expected="$(printf '%s\n' \
+            atlas-exit/accompagnement.html \
+            atlas-exit/atlas-country-evidence.css \
+            atlas-exit/atlas-ui-accompagnement.css \
+            atlas-exit/atlas-ui-guide.css \
+            atlas-exit/atlas-ui-roadmap.css \
+            atlas-exit/country-evidence-australia.js \
+            atlas-exit/country-evidence-japan.js \
+            atlas-exit/country-evidence-singapore.js \
+            atlas-exit/country-evidence-spain.js \
+            atlas-exit/country-evidence-switzerland.js \
+            atlas-exit/country-evidence.js \
+            atlas-exit/fiscal-finalize.js \
+            atlas-exit/offres.html \
+            atlas-exit/parcours-usa.html | sort)"
+          test "$actual" = "$expected"
+          test "$(git rev-list --count "$BASE_HEAD..$PRODUCT_HEAD")" = "7"
+          for f in $(git diff --name-only "$BASE_HEAD" "$RC1_HEAD"); do
+            if test "$f" != "atlas-exit/fiscal-finalize.js"; then
+              test "$(git rev-parse "$RC1_HEAD:$f")" = "$(git rev-parse "$PRODUCT_HEAD:$f")"
+            fi
+          done
+          git checkout --detach "$PRODUCT_HEAD"
+          node --check atlas-exit/country-evidence.js
+          node --check atlas-exit/country-evidence-australia.js
+          node --check atlas-exit/country-evidence-spain.js
+          node --check atlas-exit/country-evidence-japan.js
+          node --check atlas-exit/country-evidence-switzerland.js
+          node --check atlas-exit/country-evidence-singapore.js
+          node --check atlas-exit/fiscal-finalize.js
+          node --check atlas-exit/parcours-usa.js
+          mkdir -p qa-artifacts
+          {
+            echo "PRODUCT_HEAD=$PRODUCT_HEAD"
+            echo "RC1_HEAD=$RC1_HEAD"
+            echo "BASE_HEAD=$BASE_HEAD"
+            echo "PRODUCT_COMMITS=$(git rev-list --count "$BASE_HEAD..$PRODUCT_HEAD")"
+            echo "RC2_DELTA_BEGIN"
+            printf '%s\n' "$delta"
+            echo "RC2_DELTA_END"
+            echo "ALLOWLIST_BEGIN"
+            printf '%s\n' "$actual"
+            echo "ALLOWLIST_END"
+            echo "FINAL_BLOBS_BEGIN"
+            for f in $actual; do printf '%s %s\n' "$(git rev-parse "$PRODUCT_HEAD:$f")" "$f"; done
+            echo "FINAL_BLOBS_END"
+          } > qa-artifacts/composition-manifest.txt
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact Product head
+        run: |
+          git checkout --detach a749226db7eba39c2711ec34bec07624d8a8acc9
+          python3 -m http.server 8000 >/tmp/p5q-rc2-http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8000/atlas-exit/offres.html >/dev/null
+          curl -fsS http://127.0.0.1:8000/atlas-exit/parcours-usa.html >/dev/null
+          curl -fsS http://127.0.0.1:8000/atlas-exit/accompagnement.html >/dev/null
+      - name: Real Chromium — Explorer, Guide, Roadmap, Accompagnement
+        run: |
+          mkdir -p qa-artifacts
+          NODE_PATH="$PWD/node_modules" node /tmp/atlas-p5q-rc2.cjs
+      - name: Verify synthetic chain extension
+        run: |
+          test "$(git show -s --format=%P a749226db7eba39c2711ec34bec07624d8a8acc9)" = "f7be94781368b898e598d5363fd16986230fd9bd"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-p5q-rc2-singapore-synthetic-composition-qa
+          path: qa-artifacts
+          if-no-files-found: error
