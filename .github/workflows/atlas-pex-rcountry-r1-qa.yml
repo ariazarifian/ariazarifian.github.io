@@ -132,10 +132,13 @@ jobs:
                 const box=await page.locator('#inspector').boundingBox(); assert.ok(box&&box.x>=-1&&box.x+box.width<=cfg.width+1,`${iso}:inspector bounds`);
                 await page.locator('#inspector [data-dismiss]').click();
               }
-              await page.locator('#countrySearch').fill('Australie'); await page.waitForTimeout(80);
-              await page.locator('[data-save="AUS"]').click();
-              await page.locator('#countrySearch').fill('Canada'); await page.waitForTimeout(80);
-              await page.locator('[data-save="CAN"]').click();
+              for(const [iso,name] of [['AUS','Australie'],['CAN','Canada']]){
+                await page.locator('#countrySearch').fill(name); await page.waitForTimeout(80);
+                const row=page.locator(`[data-country="${iso}"]`); await row.scrollIntoViewIfNeeded(); await row.click({force:true});
+                await page.waitForSelector(`#inspector [data-save="${iso}"]`);
+                await page.locator(`#inspector [data-save="${iso}"]`).click();
+                await page.locator('#inspector [data-dismiss]').click();
+              }
               assert.equal(await page.locator('#savedCount').textContent(),'2');
               await page.locator('#openCompare').click(); await page.locator('#compareDialog').waitFor({state:'visible'}); await page.waitForTimeout(80);
               const compare=await page.locator('#compareTable').innerText(); assert.match(compare,/Australie/); assert.match(compare,/Canada/); assert.match(compare,/Fédéral \+ province|province\/territoire/i);
