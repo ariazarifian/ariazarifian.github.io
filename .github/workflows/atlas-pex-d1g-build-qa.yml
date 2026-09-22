@@ -1,7 +1,8 @@
 name: Atlas PEX-D1G Canada build and QA
 on:
   push:
-    branches: [ops/atlas-pex-d1g-build-helper-20260922]
+    branches:
+      - ops/atlas-pex-d1g-build-helper-20260922
 permissions:
   contents: write
 jobs:
@@ -12,98 +13,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Preserve QA harness and checkout Product branch
+      - name: Preserve helper scripts
         run: |
+          cp scripts/pex_d1g_patch.py /tmp/pex_d1g_patch.py
           cp scripts/pex_d1g_qa.cjs /tmp/pex_d1g_qa.cjs
+      - name: Checkout exact Product branch
+        run: |
           git checkout ops/atlas-pex-d1g-canada-20260922
           test "$(git rev-parse HEAD)" = "bb8ac263a597a26265579c33181fdff824934bfd"
-      - name: Wire Canada into fiscal and comparator bridge
+      - name: Apply deterministic Canada bridge patch
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('atlas-exit/fiscal-finalize.js')
-          s=p.read_text()
-          def rep(old,new):
-              global s
-              if old not in s: raise SystemExit('missing patch anchor: '+old[:80])
-              s=s.replace(old,new,1)
-          rep("    singaporeCorpIRAS:{name:'IRAS Singapour · impôt sur les sociétés',url:'https://www.iras.gov.sg/quick-links/tax-rates/corporate-income-tax-rates'},\n    singaporeGstIRAS:{name:'IRAS Singapour · GST',url:'https://www.iras.gov.sg/quick-links/tax-rates/goods-and-services-tax-%28gst%29-rates'}",
-              "    singaporeCorpIRAS:{name:'IRAS Singapour · impôt sur les sociétés',url:'https://www.iras.gov.sg/quick-links/tax-rates/corporate-income-tax-rates'},\n    singaporeGstIRAS:{name:'IRAS Singapour · GST',url:'https://www.iras.gov.sg/quick-links/tax-rates/goods-and-services-tax-%28gst%29-rates'},\n    canadaCorpCRA:{name:'CRA Canada · impôt fédéral sur les sociétés',url:'https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/corporations/corporation-tax-rates.html'},\n    canadaSalesTaxCRA:{name:'CRA Canada · GST/HST et taxes provinciales',url:'https://www.canada.ca/en/revenue-agency/services/forms-publications/publications/3-3-2/place-supply-province-overview.html'}")
-          rep("  // Territories where a national company-tax number would be misleading.",
-              "  // PEX-D1G legacy reconciliation for Canada's federal corporate/sales-tax cards.\n  // Provincial/territorial layers remain separate; these strings are not all-in rates.\n  merge('CAN',{\n    cit:'15 % fédéral général',\n    citScope:'Taux fédéral général net · 9 % fédéral possible pour CCPC éligible à la déduction PME · taux provinciaux/territoriaux en plus',\n    vat:'GST 5 % + HST/PST variables',\n    vatScope:'GST/HST/PST selon province/territoire · aucun taux Canada tout compris',\n    sources:['canadaCorpCRA','canadaSalesTaxCRA'],\n    checked:'CRA · vérifié 21.09.2026'\n  });\n\n  // Territories where a national company-tax number would be misleading.")
-          rep("  if(window.ATLAS_TAX?.SGP) Object.assign(window.ATLAS_TAX.SGP,singaporeResidentPit);\n  if(window.ATLAS_CATALOG?.SGP) Object.assign(window.ATLAS_CATALOG.SGP,singaporeResidentPit);",
-              "  if(window.ATLAS_TAX?.SGP) Object.assign(window.ATLAS_TAX.SGP,singaporeResidentPit);\n  if(window.ATLAS_CATALOG?.SGP) Object.assign(window.ATLAS_CATALOG.SGP,singaporeResidentPit);\n\n  // PEX-D1G Canada: federal and provincial/territorial PIT must remain layered.\n  const canadaLayeredPit={tax:null,taxLabel:'Fédéral + province/territoire',taxYear:'2026 · CRA vérifié 21.09.2026',scope:'PIT fédéral + impôt provincial/territorial séparé',note:'Le barème fédéral 2026 est 14 %, 20,5 %, 26 %, 29 % et 33 %. L’impôt provincial/territorial s’ajoute ; 33 % n’est pas un taux canadien tout compris.',src:null,taxKind:'current-reference'};\n  if(window.ATLAS_TAX?.CAN) Object.assign(window.ATLAS_TAX.CAN,canadaLayeredPit);\n  if(window.ATLAS_CATALOG?.CAN) Object.assign(window.ATLAS_CATALOG.CAN,canadaLayeredPit);")
-          marker="  function bindAustraliaComparator(){"
-          canada_cmp="""  function reconcileCanadaComparator(){
-    const core=window.ATLAS_COUNTRY_EVIDENCE;
-    const can=window.ATLAS_COUNTRY_EVIDENCE_CANADA?.country;
-    const table=document.querySelector('#compareTable table');
-    if(!core||!can||!table)return;
-    const headers=[...table.querySelectorAll('thead th')];
-    const idx=headers.findIndex(th=>/Canada/i.test(th.textContent||''));
-    if(idx<1)return;
-    const rowByLabel=label=>[...table.querySelectorAll('tbody tr')].find(tr=>tr.querySelector('td')?.textContent.trim()===label);
-    const cell=label=>rowByLabel(label)?.querySelectorAll('td')?.[idx]||null;
-    const set=(label,html)=>{const target=cell(label);if(target&&!(target.dataset.atlasNormalized==='CAN'&&target.innerHTML===html)){target.innerHTML=html;target.dataset.atlasNormalized='CAN';}};
-    const sourceHtml=['tax_residency','pit','cit_business','consumption_tax'].map(k=>core.renderSources(can.fields[k])).join('');
-    set('Revenu','<span class=\"val\">Fédéral + province/territoire</span><small>2026 fédéral 14–33 % · impôt provincial/territorial séparé · aucun taux tout compris</small>');
-    set('Sociétés','<span class=\"val\">15 % fédéral général</span><small>9 % fédéral possible pour CCPC éligible SBD · provinces/territoires en plus</small>');
-    set('TVA / consommation','<span class=\"val\">GST/HST/PST selon province</span><small>GST fédérale 5 % dans les juridictions non participantes · HST/PST variables</small>');
-    set('Taxes particulières','<small>Résidence fiscale, EIC/autres voies d’immigration, fiscalité provinciale et éligibilité santé restent des objets distincts ; aucune équivalence automatique.</small>');
-    set('Sources',sourceHtml);
-  }
-
-"""
-          rep(marker,canada_cmp+marker)
-          marker="  function loadSingaporeEvidence(){"
-          canada_bind_load="""  function bindCanadaComparator(){
-    const host=document.querySelector('#compareTable');
-    if(!host||host.dataset.atlasCanComparatorBound==='true')return;
-    host.dataset.atlasCanComparatorBound='true';
-    reconcileCanadaComparator();
-    new MutationObserver(()=>queueMicrotask(reconcileCanadaComparator)).observe(host,{childList:true,subtree:true});
-  }
-
-  function loadCanadaEvidence(){
-    if(window.ATLAS_COUNTRY_EVIDENCE_CANADA){bindCanadaComparator();reconcileCanadaComparator();return;}
-    const existing=document.querySelector('[data-atlas-country-evidence-canada]');
-    if(existing){existing.addEventListener('load',()=>{bindCanadaComparator();reconcileCanadaComparator();},{once:true});return;}
-    const canada=document.createElement('script');
-    canada.src='country-evidence-canada.js?v=pex-d1g-1';
-    canada.async=false;
-    canada.dataset.atlasCountryEvidenceCanada='runtime';
-    canada.addEventListener('load',()=>{bindCanadaComparator();reconcileCanadaComparator();},{once:true});
-    document.head.append(canada);
-  }
-
-"""
-          rep(marker,canada_bind_load+marker)
-          rep("    if(window.ATLAS_COUNTRY_EVIDENCE_SINGAPORE){bindSingaporeComparator();reconcileSingaporeComparator();return;}","    if(window.ATLAS_COUNTRY_EVIDENCE_SINGAPORE){bindSingaporeComparator();reconcileSingaporeComparator();loadCanadaEvidence();return;}")
-          rep("    if(existing){existing.addEventListener('load',()=>{bindSingaporeComparator();reconcileSingaporeComparator();},{once:true});return;}","    if(existing){existing.addEventListener('load',()=>{bindSingaporeComparator();reconcileSingaporeComparator();loadCanadaEvidence();},{once:true});return;}")
-          rep("    singapore.addEventListener('load',()=>{bindSingaporeComparator();reconcileSingaporeComparator();},{once:true});","    singapore.addEventListener('load',()=>{bindSingaporeComparator();reconcileSingaporeComparator();loadCanadaEvidence();},{once:true});")
-          rep("  // PEX-D1B/D1C/D1D/D1E/D1F: keep the D1A evidence contract isolated, then load visible","  // PEX-D1B/D1C/D1D/D1E/D1F/D1G: keep the D1A evidence contract isolated, then load visible")
-          rep("countryEvidenceBootstrap:'pex-d1f-1'","countryEvidenceBootstrap:'pex-d1g-1'")
-          rep("singaporeLegacyTaxReconciled:true,singaporeComparatorReconciled:true};","singaporeLegacyTaxReconciled:true,singaporeComparatorReconciled:true,canadaLegacyTaxReconciled:true,canadaComparatorReconciled:true};")
-          p.write_text(s)
-          PY
+          python3 /tmp/pex_d1g_patch.py
           node --check atlas-exit/country-evidence-canada.js
           node --check atlas-exit/fiscal-finalize.js
+          test "$(git diff --name-only)" = "atlas-exit/fiscal-finalize.js"
       - name: Commit exact Product candidate
         run: |
-          test "$(git diff --name-only)" = "atlas-exit/fiscal-finalize.js"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add atlas-exit/fiscal-finalize.js
           git commit -m 'PEX-D1G wire Canada evidence into Explorer'
           echo "PRODUCT_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           git push origin HEAD:refs/heads/ops/atlas-pex-d1g-canada-20260922
-      - name: Contract syntax and bounded Product scope
+      - name: Bounded Product scope
         run: |
           node --check atlas-exit/country-evidence-canada.js
           node --check atlas-exit/country-evidence.js
           node --check atlas-exit/fiscal-finalize.js
           test "$(git diff --name-only dee08b010d9a5f25cb6d64e1d8c7dd89ae53eee4 "$PRODUCT_HEAD" -- atlas-exit | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-canada.js atlas-exit/fiscal-finalize.js | sort)"
-          git diff --exit-code dee08b010d9a5f25cb6d64e1d8c7dd89ae53eee4 "$PRODUCT_HEAD" -- atlas-exit/country-evidence.js atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-switzerland.js atlas-exit/country-evidence-singapore.js atlas-exit/atlas-country-evidence.css atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/catalog.js atlas-exit/commerce-data.js atlas-exit/tax-additions.js atlas-exit/corporate-world.js atlas-exit/consumption-world.js atlas-exit/sitemap.xml atlas-exit/robots.txt
       - name: Install Chromium
         run: |
           npm init -y >/dev/null 2>&1
@@ -117,7 +54,7 @@ jobs:
         run: |
           mkdir -p qa-artifacts
           NODE_PATH="$PWD/node_modules" PRODUCT_HEAD="$PRODUCT_HEAD" node /tmp/pex_d1g_qa.cjs
-      - name: Reduced motion and immutable shell
+      - name: Immutable shell regression
         run: |
           grep -q '@media(prefers-reduced-motion:reduce)' atlas-exit/atlas-country-evidence.css
           git diff --exit-code dee08b010d9a5f25cb6d64e1d8c7dd89ae53eee4 "$PRODUCT_HEAD" -- atlas-exit/country-evidence.js atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-switzerland.js atlas-exit/country-evidence-singapore.js atlas-exit/atlas-country-evidence.css atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/sitemap.xml atlas-exit/robots.txt
