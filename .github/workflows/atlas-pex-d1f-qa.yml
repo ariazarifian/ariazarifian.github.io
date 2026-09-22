@@ -1,0 +1,48 @@
+name: Atlas PEX-D1F Singapore evidence QA
+on:
+  push:
+    branches: [ops/atlas-pex-d1f-singapore-qa-20260922]
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve QA harness and checkout exact Product candidate
+        run: |
+          cp scripts/pex_d1f_qa.cjs /tmp/pex_d1f_qa.cjs
+          git checkout --detach dee08b010d9a5f25cb6d64e1d8c7dd89ae53eee4
+      - name: Contract syntax and bounded Product scope
+        run: |
+          node --check atlas-exit/country-evidence-singapore.js
+          node --check atlas-exit/country-evidence.js
+          node --check atlas-exit/fiscal-finalize.js
+          test "$(git diff --name-only a9ff48e53dff3bba3eb4d1311396c483fd87fd70 dee08b010d9a5f25cb6d64e1d8c7dd89ae53eee4 -- atlas-exit | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-singapore.js atlas-exit/fiscal-finalize.js | sort)"
+          git diff --exit-code a9ff48e53dff3bba3eb4d1311396c483fd87fd70 dee08b010d9a5f25cb6d64e1d8c7dd89ae53eee4 -- atlas-exit/country-evidence.js atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-switzerland.js atlas-exit/atlas-country-evidence.css atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/catalog.js atlas-exit/commerce-data.js atlas-exit/tax-additions.js atlas-exit/corporate-world.js atlas-exit/consumption-world.js atlas-exit/sitemap.xml atlas-exit/robots.txt
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact Product candidate
+        run: |
+          python3 -m http.server 8000 >/tmp/pex-d1f-http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
+      - name: Real Chrome desktop and mobile plus evidence contract
+        run: |
+          mkdir -p qa-artifacts
+          NODE_PATH="$PWD/node_modules" node /tmp/pex_d1f_qa.cjs
+      - name: Reduced motion and immutable shell
+        run: |
+          grep -q '@media(prefers-reduced-motion:reduce)' atlas-exit/atlas-country-evidence.css
+          git diff --exit-code a9ff48e53dff3bba3eb4d1311396c483fd87fd70 dee08b010d9a5f25cb6d64e1d8c7dd89ae53eee4 -- atlas-exit/country-evidence.js atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-switzerland.js atlas-exit/atlas-country-evidence.css atlas-exit/index.html atlas-exit/script.js atlas-exit/atlas-events.js atlas-exit/sitemap.xml atlas-exit/robots.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-d1f-singapore-evidence-qa
+          path: qa-artifacts
+          if-no-files-found: warn
