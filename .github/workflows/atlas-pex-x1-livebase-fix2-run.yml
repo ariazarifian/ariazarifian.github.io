@@ -38,17 +38,17 @@ jobs:
           p.write_text(s.replace(old,new))
           PY
           node --check atlas-exit/conflict-tensions.js
+          git add atlas-exit/conflict-tensions.css atlas-exit/conflict-tensions.js atlas-exit/index.html
           expected="$(printf '%s\n' atlas-exit/conflict-tensions.css atlas-exit/conflict-tensions.js atlas-exit/index.html | sort)"
-          actual="$(git diff --name-only "$LIVE_HEAD" | sort)"
+          actual="$(git diff --cached --name-only "$LIVE_HEAD" | sort)"
           test "$actual" = "$expected"
-          git diff --check "$LIVE_HEAD"
+          git diff --cached --check "$LIVE_HEAD"
           grep -F 'data-layer="conflict"' atlas-exit/index.html
           ! grep -F 'data-layer="explore"' atlas-exit/index.html
           grep -F 'Stabilité politique' atlas-exit/index.html
           grep -F 'subtree:true' atlas-exit/conflict-tensions.js
           git config user.name 'ATLAS Product Executor'
           git config user.email 'actions@users.noreply.github.com'
-          git add atlas-exit/conflict-tensions.css atlas-exit/conflict-tensions.js atlas-exit/index.html
           git commit -m 'fix(atlas): rebase PEX-X1 on live and stabilize conflict inspector'
       - name: Validate conflict evidence contract in candidate bytes
         run: |
