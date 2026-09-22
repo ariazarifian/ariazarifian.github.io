@@ -1,0 +1,48 @@
+name: Atlas PEX-X1 Japan freshness refresh
+on:
+  push:
+    branches: [ops/atlas-pex-x1-conflict-tensions-qa-20260922]
+permissions:
+  contents: write
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/atlas-pex-x1-conflict-tensions-20260922
+          fetch-depth: 0
+      - name: Pin expected Product head
+        run: test "$(git rev-parse HEAD)" = "c155f7fea82f3e03efa7882c3620edc73359562a"
+      - name: Refresh Japan release-time evidence only
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('atlas-exit/conflict-tensions.js')
+          s=p.read_text()
+          old="le ministère japonais de la Défense a signalé le 20 août 2026 des lancements nord-coréens de missiles balistiques évalués hors de la ZEE japonaise, sans dommage rapporté."
+          new="le ministère japonais de la Défense a signalé le 20 septembre 2026 au moins un lancement nord-coréen de missile balistique, estimé à environ 440 km et tombé hors de la ZEE japonaise, sans dommage rapporté à ce stade."
+          assert old in s
+          s=s.replace(old,new,1)
+          oldsrc="{authority:'Japan Ministry of Defense',label:'Ballistic missile launch · 20 August 2026',date:'20.08.2026',url:'https://www.mod.go.jp/en/article/2026/08/bc181a435e5e5f139f471be1ad8bd0707a340da1.html'}"
+          newsrc="{authority:'Japan Ministry of Defense',label:'North Korean missile-related information · 20 September 2026',date:'20.09.2026',url:'https://www.mod.go.jp/j/press/news/2026/09/20e.html'},{authority:'Japan Ministry of Defense',label:'Defense Minister extraordinary press conference · 20 September 2026',date:'20.09.2026',url:'https://www.mod.go.jp/j/press/kisha/2026/0920a_r.html'},"+oldsrc
+          assert oldsrc in s
+          s=s.replace(oldsrc,newsrc,1)
+          p.write_text(s)
+          PY
+          node --check atlas-exit/conflict-tensions.js
+          git diff --check
+          test "$(git diff --name-only)" = "atlas-exit/conflict-tensions.js"
+          grep -q '20 septembre 2026' atlas-exit/conflict-tensions.js
+          grep -q '2026/09/20e.html' atlas-exit/conflict-tensions.js
+          grep -q '2026/0920a_r.html' atlas-exit/conflict-tensions.js
+      - name: Commit exact bounded Product refresh
+        run: |
+          git config user.name "ATLAS Product Executor"
+          git config user.email "actions@users.noreply.github.com"
+          git add atlas-exit/conflict-tensions.js
+          git commit -m "fix(atlas): refresh Japan conflict evidence to 20 Sep 2026"
+          git push origin HEAD:ops/atlas-pex-x1-conflict-tensions-20260922
+          echo "PRODUCT_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Record resulting head
+        run: echo "$PRODUCT_HEAD"
