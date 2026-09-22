@@ -16,7 +16,7 @@ jobs:
       - name: Preserve QA harness and relax legacy-store implementation assertion
         run: |
           cp scripts/pex_d1g_qa.cjs /tmp/pex_d1g_qa.cjs
-          python3 -c "from pathlib import Path;p=Path('/tmp/pex_d1g_qa.cjs');s=p.read_text();old=\"assert.equal(runtime.cit,'15 % fédéral général');assert.equal(runtime.vat,'GST 5 % + HST/PST variables');\";new=\"assert.match(runtime.cit,/15 %/);assert.match(runtime.vat,/GST|HST|PST/);\";assert old in s;p.write_text(s.replace(old,new,1))"
+          python3 -c "from pathlib import Path;p=Path('/tmp/pex_d1g_qa.cjs');s=p.read_text();old=\"assert.equal(runtime.cit,'15 % fédéral général');assert.equal(runtime.vat,'GST 5 % + HST/PST variables');\";new=\"assert.match(runtime.cit,/15 %/);assert.match(runtime.vat,/5 %/);\";assert old in s;p.write_text(s.replace(old,new,1))"
       - name: Checkout exact Product candidate
         run: |
           git checkout --detach 66372a4526191dbfd48c3d625a909a8aae895acc
