@@ -90,7 +90,7 @@
         structure:freeze({standardRate:21,reducedRates:[10,4],zeroRatedCategoriesPossible:true,unit:'percent',categorySensitive:true})
       }),
       cost_context:record({
-        state:'READY_WITH_CAVEAT',
+        state:'READY_FOR_PRODUCT',
         headline:'35 101 € / ménage · 14 066 € / personne',
         claim:'INE EPF 2025 reports EUR 35,101 average annual household expenditure and EUR 14,066 average annual expenditure per person, with material regional dispersion.',
         summary:'L’EPF 2025 de l’INE publie une dépense annuelle moyenne de 35 101 € par ménage et 14 066 € par personne, avec des écarts régionaux significatifs.',
