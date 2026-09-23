@@ -1,0 +1,109 @@
+name: ATLAS PEX-CF2 Country Factory B2 exact-byte gate
+on:
+  push:
+    branches: [ops/atlas-pex-cf2-country-factory-20260923]
+permissions:
+  contents: read
+jobs:
+  cf2-b2-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove exact production ancestry and bounded B2 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROD=77cd8c59a4750d57e64f18ebefdda6d8e2eb2e42
+          test "$(git merge-base "$PROD" HEAD)" = "$PROD"
+          changed="$(git diff --name-only "$PROD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            .github/workflows/atlas-pex-cf2-country-factory.yml \
+            atlas-exit/country-factory-dex-cf2-b2-bel.js \
+            atlas-exit/country-factory-dex-cf2-b2-cze.js \
+            atlas-exit/country-factory-dex-cf2-b2-grc.js \
+            atlas-exit/country-factory-dex-cf2-b2-lux.js \
+            atlas-exit/country-factory-dex-cf2-b2-meta.js \
+            atlas-exit/country-factory-dex-cf2-b2-pol.js \
+            atlas-exit/country-factory-runtime.js \
+            atlas-exit/index.html \
+            scripts/atlas_country_factory_b2_browser_qa.cjs \
+            scripts/atlas_country_factory_b2_validate.cjs | sort)"
+          test "$changed" = "$expected"
+          git diff --exit-code "$PROD" HEAD -- \
+            atlas-exit/sitemap.xml \
+            atlas-exit/country-factory-dex-cf1-b1-meta.js \
+            atlas-exit/country-factory-dex-cf1-b1-aut.js \
+            atlas-exit/country-factory-dex-cf1-b1-dnk.js \
+            atlas-exit/country-factory-dex-cf1-b1-fin.js \
+            atlas-exit/country-factory-dex-cf1-b1-irl.js \
+            atlas-exit/country-factory-dex-cf1-b1-nor.js \
+            atlas-exit/country-evidence-portugal.js \
+            atlas-exit/country-evidence-germany.js \
+            atlas-exit/country-evidence-united-kingdom.js \
+            atlas-exit/conflict-tensions.js \
+            atlas-exit/offres.html \
+            atlas-exit/parcours-usa.html \
+            atlas-exit/accompagnement.html \
+            atlas-exit/script.js \
+            atlas-exit/atlas-country-evidence.css \
+            atlas-exit/atlas-events.js \
+            atlas-exit/parcours-usa.js
+          ! grep -q 'country-factory-dex-cf2-b2-are' atlas-exit/index.html
+          grep -Fq 'df8ff5fca0d3f9bd7a89d1d155f28ebc2894609cdace864e893a2bc4143fb579' atlas-exit/country-factory-dex-cf2-b2-meta.js
+          grep -Fq '"clean":["BEL","CZE","GRC","LUX","POL"]' atlas-exit/country-factory-dex-cf2-b2-meta.js
+          grep -Fq '"held":["ARE"]' atlas-exit/country-factory-dex-cf2-b2-meta.js
+          for wire in \
+            country-factory-dex-cf2-b2-meta.js?v=pex-cf2-b2-1 \
+            country-factory-dex-cf2-b2-bel.js?v=pex-cf2-b2-1 \
+            country-factory-dex-cf2-b2-cze.js?v=pex-cf2-b2-1 \
+            country-factory-dex-cf2-b2-grc.js?v=pex-cf2-b2-1 \
+            country-factory-dex-cf2-b2-lux.js?v=pex-cf2-b2-1 \
+            country-factory-dex-cf2-b2-pol.js?v=pex-cf2-b2-1 \
+            country-factory-runtime.js?v=pex-cf2-b2-1; do
+            test "$(grep -o "$wire" atlas-exit/index.html | wc -l)" -eq 1
+          done
+          for wire in \
+            country-factory-dex-cf1-b1-meta.js?v=pex-cf1-b1-1 \
+            country-factory-dex-cf1-b1-aut.js?v=pex-cf1-b1-1 \
+            country-factory-dex-cf1-b1-dnk.js?v=pex-cf1-b1-1 \
+            country-factory-dex-cf1-b1-fin.js?v=pex-cf1-b1-1 \
+            country-factory-dex-cf1-b1-irl.js?v=pex-cf1-b1-1 \
+            country-factory-dex-cf1-b1-nor.js?v=pex-cf1-b1-1; do
+            test "$(grep -o "$wire" atlas-exit/index.html | wc -l)" -eq 1
+          done
+          grep -Fq 'Content-Security-Policy' atlas-exit/index.html
+          grep -Fq 'description' atlas-exit/index.html
+          grep -Fq 'qualified_project' atlas-exit/atlas-events.js
+          grep -Fq 'QEP_DEDUPE_KEY' atlas-exit/parcours-usa.js
+      - name: Syntax and deterministic B2 validation
+        run: |
+          node --check atlas-exit/country-factory-runtime.js
+          for f in atlas-exit/country-factory-dex-cf2-b2-*.js; do node --check "$f"; done
+          node --check scripts/atlas_country_factory_b2_validate.cjs
+          node --check scripts/atlas_country_factory_b2_browser_qa.cjs
+          node scripts/atlas_country_factory_b2_validate.cjs
+          node scripts/atlas_country_factory_test.cjs
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact candidate
+        run: |
+          python3 -m http.server 8000 >/tmp/http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && exit 0; sleep 1; done
+          cat /tmp/http.log; exit 1
+      - name: Exact-byte Chromium desktop and mobile Product gate
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+          ATLAS_PRODUCT_SHA: ${{ github.sha }}
+        run: timeout 360s node scripts/atlas_country_factory_b2_browser_qa.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-cf2-b2-exact-byte-gate
+          path: qa-artifacts
+          if-no-files-found: warn
