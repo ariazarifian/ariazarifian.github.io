@@ -1,0 +1,50 @@
+{
+  "version": "ATLAS-GUIDE-DIST-QA-v1.0.0",
+  "baseline_sha": "8142a288df76d5d69117dbb0ad31cfae7110486f",
+  "origin": "https://atlas-expat.fr",
+  "files": {
+    "guide": "atlas-exit/offres.html",
+    "robots": "atlas-exit/robots.txt",
+    "sitemap": "atlas-exit/sitemap.xml"
+  },
+  "guide": {
+    "canonical": "https://atlas-expat.fr/offres.html",
+    "download_endpoint": "https://atlas-exit-delivery.onrender.com/free-guide/usa",
+    "roadmap_path": "parcours-usa.html",
+    "guide_event": "guide_download_click",
+    "guide_target": "v15_pdf",
+    "roadmap_event": "free_funnel_cta",
+    "roadmap_target": "roadmap",
+    "events_script": "atlas-events.js?v=1",
+    "umami_script": "https://cloud.umami.is/script.js",
+    "umami_website_id": "16d90020-7c80-42f7-bee3-ee10249320a0",
+    "umami_domains": [
+      "atlas-expat.fr",
+      "www.atlas-expat.fr"
+    ],
+    "required_nav_paths": [
+      "index.html",
+      "offres.html",
+      "parcours-usa.html",
+      "accompagnement.html"
+    ],
+    "required_disclosure_terms": [
+      "conseil juridique",
+      "fiscal",
+      "stockage local",
+      "navigateur"
+    ]
+  },
+  "robots": {
+    "sitemap": "https://atlas-expat.fr/sitemap.xml"
+  },
+  "forbidden_loaded_scripts": [
+    "offres.js"
+  ],
+  "forbidden_guide_markers": [
+    "/checkout",
+    "revolut",
+    "acheter le guide",
+    "29 €"
+  ]
+}
