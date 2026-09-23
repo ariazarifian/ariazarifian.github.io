@@ -20,22 +20,14 @@ jobs:
           test "$(git merge-base "$PROD" HEAD)" = "$PROD"
           test "$(git rev-parse "$PROD:atlas-exit/index.html")" = "$(git rev-parse HEAD:atlas-exit/index.html)"
           ! grep -q 'country-factory-runtime' atlas-exit/index.html
+
           changed="$(git diff --name-only "$PROD" HEAD | sort)"
-          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/atlas-pex-cf1-country-factory\.yml|atlas-exit/country-factory-(runtime|dex-cf1-[a-z0-9-]+)\.js|scripts/atlas_country_factory_(generate|lib|test|validate)\.cjs)
-      - name: Syntax checks
-        run: |
-          node --check atlas-exit/country-factory-runtime.js
-          node --check scripts/atlas_country_factory_lib.cjs
-          node --check scripts/atlas_country_factory_validate.cjs
-          node --check scripts/atlas_country_factory_generate.cjs
-          node --check scripts/atlas_country_factory_test.cjs
-      - name: Deterministic validator / generator regression suite
-        run: node scripts/atlas_country_factory_test.cjs
- || true)"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/atlas-pex-cf1-country-factory\.yml|atlas-exit/country-factory-(runtime|dex-cf1-[a-z0-9-]+)\.js|scripts/atlas_country_factory_(generate|lib|test|validate)\.cjs)$' || true)"
           if [ -n "$unexpected" ]; then
             printf 'Unexpected file(s) outside Country Factory boundary:\n%s\n' "$unexpected" >&2
             exit 1
           fi
+
           for required in \
             atlas-exit/country-factory-runtime.js \
             scripts/atlas_country_factory_generate.cjs \
