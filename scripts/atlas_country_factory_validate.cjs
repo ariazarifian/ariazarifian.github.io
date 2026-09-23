@@ -1,0 +1,16 @@
+#!/usr/bin/env node
+'use strict';
+const fs=require('node:fs');
+const path=require('node:path');
+const {validateManifest}=require('./atlas_country_factory_lib.cjs');
+
+const input=process.argv[2];
+const output=process.argv[3]||null;
+if(!input){console.error('usage: node scripts/atlas_country_factory_validate.cjs <manifest.json> [report.json]');process.exit(64);}
+let manifest;
+try{manifest=JSON.parse(fs.readFileSync(input,'utf8'));}catch(error){console.error(`manifest read/parse failed: ${error.message}`);process.exit(65);}
+const report=validateManifest(manifest,{requireChecksum:true});
+const json=JSON.stringify(report,null,2)+'\n';
+if(output){fs.mkdirSync(path.dirname(output),{recursive:true});fs.writeFileSync(output,json);}
+process.stdout.write(json);
+if(!report.ok)process.exit(1);
