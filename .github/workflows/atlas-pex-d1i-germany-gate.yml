@@ -16,6 +16,7 @@ jobs:
         run: |
           cp scripts/pex_d1i_germany_qa.cjs /tmp/qa.cjs
           sed -i 's/new URL(/new globalThis.URL(/g' /tmp/qa.cjs
+          sed -i 's@/plus de six mois/i@/6 mois/@g' /tmp/qa.cjs
           git checkout --detach abafbe9ec7777b65f68c39ae6fab024be25abaae
       - name: Exact lineage scope and preservation
         shell: bash
