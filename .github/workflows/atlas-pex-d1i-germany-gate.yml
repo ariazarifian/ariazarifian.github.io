@@ -17,6 +17,7 @@ jobs:
           cp scripts/pex_d1i_germany_qa.cjs /tmp/qa.cjs
           sed -i 's/new URL(/new globalThis.URL(/g' /tmp/qa.cjs
           sed -i 's@/plus de six mois/i@/6 mois/@g' /tmp/qa.cjs
+          sed -i "s/\['qualified_project','atlas-events.js','USCIS','Roadmap'\]/['atlas-events.js','USCIS','Roadmap']/" /tmp/qa.cjs
           python3 - <<'PY'
           p='/tmp/qa.cjs'
           s=open(p).read()
@@ -35,10 +36,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "$C"
           test "$(git merge-base "$BASE" "$C")" = "$BASE"
           test "$(git diff --name-only "$BASE" "$C" | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-germany.js atlas-exit/index.html | sort)"
-          git diff --exit-code "$BASE" "$C" -- atlas-exit/sitemap.xml atlas-exit/country-evidence-united-kingdom.js atlas-exit/conflict-tensions.js atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html atlas-exit/script.js atlas-exit/atlas-country-evidence.css
+          git diff --exit-code "$BASE" "$C" -- atlas-exit/sitemap.xml atlas-exit/country-evidence-united-kingdom.js atlas-exit/conflict-tensions.js atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html atlas-exit/script.js atlas-exit/atlas-country-evidence.css atlas-exit/atlas-events.js atlas-exit/parcours-usa.js
           node --check atlas-exit/country-evidence-germany.js
           grep -Fq 'country-evidence-germany.js?v=pex-d1i-1' atlas-exit/index.html
           test "$(grep -o 'country-evidence-germany.js?v=pex-d1i-1' atlas-exit/index.html | wc -l)" -eq 1
+          grep -Fq 'qualified_project' atlas-exit/atlas-events.js
+          grep -Fq "QEP_DEDUPE_KEY" atlas-exit/parcours-usa.js
       - name: Install Chromium
         run: |
           npm init -y >/dev/null 2>&1
