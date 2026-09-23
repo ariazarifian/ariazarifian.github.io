@@ -1,0 +1,57 @@
+name: Atlas PEX-D1J Portugal exact-byte gate
+on:
+  push:
+    branches: [ops/atlas-pex-d1j-portugal-qa-20260923]
+permissions:
+  contents: read
+jobs:
+  portugal-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve QA harness and checkout exact Product candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/pex_d1j_portugal_qa.cjs /tmp/qa.cjs
+          git checkout --detach 99a90012fd25c75d112be4f6dc63ab848d738928
+      - name: Exact lineage scope and preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=abafbe9ec7777b65f68c39ae6fab024be25abaae
+          C=99a90012fd25c75d112be4f6dc63ab848d738928
+          test "$(git rev-parse HEAD)" = "$C"
+          test "$(git merge-base "$BASE" "$C")" = "$BASE"
+          test "$(git diff --name-only "$BASE" "$C" | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-portugal.js atlas-exit/index.html | sort)"
+          git diff --exit-code "$BASE" "$C" -- atlas-exit/sitemap.xml atlas-exit/country-evidence-germany.js atlas-exit/country-evidence-united-kingdom.js atlas-exit/conflict-tensions.js atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html atlas-exit/script.js atlas-exit/atlas-country-evidence.css atlas-exit/atlas-events.js atlas-exit/parcours-usa.js
+          node --check atlas-exit/country-evidence-portugal.js
+          grep -Fq 'country-evidence-portugal.js?v=pex-d1j-1' atlas-exit/index.html
+          test "$(grep -o 'country-evidence-portugal.js?v=pex-d1j-1' atlas-exit/index.html | wc -l)" -eq 1
+          grep -Fq 'qualified_project' atlas-exit/atlas-events.js
+          grep -Fq 'QEP_DEDUPE_KEY' atlas-exit/parcours-usa.js
+          grep -Fq 'Content-Security-Policy' atlas-exit/index.html
+          grep -Fq 'description' atlas-exit/index.html
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact candidate
+        run: |
+          python3 -m http.server 8000 >/tmp/http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && exit 0; sleep 1; done
+          cat /tmp/http.log; exit 1
+      - name: Full Chromium desktop mobile gate
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+        run: timeout 240s node /tmp/qa.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-d1j-portugal-exact-byte-gate
+          path: qa-artifacts
+          if-no-files-found: warn
