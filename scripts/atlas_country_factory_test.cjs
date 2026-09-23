@@ -1,41 +1,14 @@
 'use strict';
 const assert=require('node:assert/strict');
-const fs=require('node:fs');
-const os=require('node:os');
-const path=require('node:path');
-const cp=require('node:child_process');
-const {CORE8,digest,checksumPayload,validateManifest}=require('./atlas_country_factory_lib.cjs');
-
-function source(id){return {owner:'Official Authority',locator:`https://official.example/${id}`,sourceClass:'PRIMARY_GOV',evidenceId:`EV-${id}`};}
-function field(key,opts={}){
-  const conditional=['tax_residency','cit_business','residence_visa','healthcare'].includes(key);
-  return {
-    state:'READY_FOR_PRODUCT',headline:`${key} · repère officiel`,summary:`Résumé concis et conditionnel pour ${key}.`,scope:`Scope ${key}`,sourceVintage:'2026',checkedOn:'2026-09-23',verifiedOn:'2026-09-23',
-    source:source(key),evidenceId:`EV-${key}`,freshness:{state:'CURRENT',cadence:'ANNUAL+EVENT',trigger:`official ${key} change`},caveat:`Limites explicites pour ${key}.`,structure:{conditional},...(conditional?{conditions:['status/rule dependent']}:{ }),...opts
-  };
-}
-function record(iso,country,overrides={}){
-  const fields=Object.fromEntries(CORE8.map(k=>[k,field(k)]));
-  return {key:iso,iso3:iso,country,schemaVersion:'country-evidence-v1',evidenceBatch:'DEX-CF1-TEST',volatility:{conflictTensions:'NORMAL',releaseTimeRefreshRequired:false,checkedOn:'2026-09-23'},fields,...overrides};
-}
-function signed(manifest){const x=structuredClone(manifest);x.checksum=`sha256:${digest(checksumPayload(x))}`;return x;}
-
-const base=signed({schemaVersion:'atlas-country-factory-manifest-v1',manifestVersion:'DEX-CF1-TEST-01',checkedOn:'2026-09-23',clean:['NLD','BEL','AUT','DNK','NOR'],held:['ARE'],records:[record('NLD','Pays-Bas'),record('BEL','Belgique'),record('AUT','Autriche'),record('DNK','Danemark'),record('NOR','Norvège'),record('ARE','Émirats arabes unis',{fields:{...record('ARE','x').fields,cost_context:field('cost_context',{state:'HOLD_NO_NATIONAL_SCALAR'})}})]});
-let out=validateManifest(base);
-assert.equal(out.ok,true,JSON.stringify(out,null,2));
-assert.deepEqual(out.clean,['NLD','BEL','AUT','DNK','NOR']);
-assert.ok(out.held.includes('ARE'));
-assert.equal(out.failed.length,0);
-
-const watch=structuredClone(base);watch.records[0].fields.pit.freshness={state:'WATCH',cadence:'IMMEDIATE+EVENT',trigger:'enactment/rejection/material amendment',checkedOn:'2026-09-23'};watch.checksum=`sha256:${digest(checksumPayload(watch))}`;out=validateManifest(watch);assert.equal(out.ok,true,'READY field + separate WATCH freshness must stay CLEAN');
-
-const noConditions=structuredClone(base);delete noConditions.records[0].fields.healthcare.conditions;noConditions.checksum=`sha256:${digest(checksumPayload(noConditions))}`;out=validateManifest(noConditions);assert.equal(out.ok,false);assert.ok(out.failed.includes('NLD'));
-
-const longCopy=structuredClone(base);longCopy.records[1].fields.pit.headline='X'.repeat(97);longCopy.checksum=`sha256:${digest(checksumPayload(longCopy))}`;out=validateManifest(longCopy);assert.equal(out.ok,false);assert.ok(out.results.find(r=>r.iso3==='BEL').errors.some(e=>/headline length/.test(e)));
-
-const volatile=structuredClone(base);volatile.records[2].volatility={conflictTensions:'HIGH',releaseTimeRefreshRequired:false,checkedOn:'2026-09-23'};volatile.checksum=`sha256:${digest(checksumPayload(volatile))}`;out=validateManifest(volatile);assert.equal(out.ok,false);assert.ok(out.results.find(r=>r.iso3==='AUT').errors.some(e=>/releaseTimeRefreshRequired/.test(e)));
-
-const tampered=structuredClone(base);tampered.records[0].country='Tampered';out=validateManifest(tampered);assert.equal(out.ok,false);assert.ok(out.manifestErrors.some(e=>/checksum mismatch/.test(e)));
-
-const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'atlas-cf1-'));const manifestPath=path.join(tmp,'manifest.json'),generated=path.join(tmp,'batch.js');fs.writeFileSync(manifestPath,JSON.stringify(base,null,2));cp.execFileSync(process.execPath,['scripts/atlas_country_factory_generate.cjs',manifestPath,generated],{cwd:path.resolve(__dirname,'..'),stdio:'pipe'});const js=fs.readFileSync(generated,'utf8');assert.match(js,/ATLAS_COUNTRY_FACTORY_BATCH/);assert.match(js,/"NLD"/);assert.doesNotMatch(js,/"country":"Émirats arabes unis"/);
-console.log(JSON.stringify({status:'PASS',cleanBatch:5,heldIsolation:true,watchSeparation:true,conditionalSemantics:true,textLimits:true,volatilityGate:true,checksumTamperDetection:true,generatorPrunesHeld:true},null,2));
+const {CORE8,checksum,validateManifest,toRuntime}=require('./atlas_country_factory_lib.cjs');
+function ev(id){return {evidence_id:id,authority:'Official Authority',locator:`https://official.example/${id}`,source_type:'PRIMARY_GOV',scope:'official scope',vintage:'2026',checkedOn:'2026-09-23',supports:'claim'};}
+function fld(country,key,i,{watch=false,multi=false}={}){const ids=multi?[`${country}-E${i}A`,`${country}-E${i}B`]:[`${country}-E${i}`];return {field_id:key,state:'READY',product_handoff:'READY_FOR_PRODUCT',headline:`${key} — repère officiel`,summary:`Résumé concis, conditionnel et sourcé pour ${key}.`,text_length:{headline:{chars:1,words:1},summary:{chars:1,words:1}},evidence_ids:ids,scope:`${country} ${key}`,vintage:'current guidance',checkedOn:'2026-09-23',caveats:['Ne pas aplatir les conditions.'],multi_source_required:multi,freshness:watch?{state:'WATCH',cadence:'EVENT',next_review_trigger:'official enactment',watch:{reason:'proposal pending',checkedOn:'2026-09-23'}}:{state:'CURRENT',cadence:'ANNUAL+EVENT',next_review_trigger:'official change'},flags:{conflict_volatility:key==='safety_context'?'LOW':'NOT_APPLICABLE',release_refresh_required:key==='safety_context',no_scalar_simplification:true},conditional_semantics:'Le statut et les conditions applicables doivent rester explicites.'};}
+function country(k,name,watch=false){const core8=CORE8.map((f,i)=>fld(k,f,i+1,{watch:watch&&f==='cit_business',multi:f==='healthcare'}));return {country_key:k,country_name:name,country_name_en:name,iso2:k.slice(0,2),iso3:k,batch_status:'CLEAN',field_count:8,ready_count:8,hold_count:0,watch_freshness_fields:watch?['cit_business']:[],core8};}
+const countries=[country('AUT','Autriche',true),country('DNK','Danemark'),country('FIN','Finlande'),country('IRL','Irlande'),country('NOR','Norvège')];const evidence_map={};for(const c of countries)for(const f of c.core8)for(const id of f.evidence_ids)evidence_map[id]=ev(id);
+const manifest={schema:'atlas.country_factory.manifest.v1',manifest_id:'DEX-CF1-TEST',manifest_version:'2026-09-23.test',createdOn:'2026-09-23',owner:'ATLAS Distribution',status:'FROZEN_FOR_CHIEF_PRODUCT_HANDOFF',production_baseline:'a'.repeat(40),rollback_baseline:'b'.repeat(40),governance:{core8_field_order:CORE8,text_limits:{headline_max_chars:110,summary_max_chars:340}},batch:{clean:countries.map(c=>c.country_key),held:['ARE']},countries,held_records:[{country_key:'ARE',excluded_from_product_batch:true}],evidence_map,checksum:{algorithm:'sha256',canonical_json_without_checksum:''}};manifest.checksum.canonical_json_without_checksum=checksum(manifest);
+let r=validateManifest(manifest);assert.equal(r.ok,true,JSON.stringify(r,null,2));assert.equal(r.clean.length,5);assert.deepEqual(r.held,['ARE']);assert.ok(r.warnings.some(w=>w.includes('declared headline chars')),'stale advisory text_length must warn, not fail');const runtime=toRuntime(manifest);assert.equal(runtime.records.length,5);assert.equal(runtime.records[0].fields.cit_business.freshness.state,'WATCH');assert.equal(runtime.records[0].fields.cit_business.state,'READY_FOR_PRODUCT');assert.equal(runtime.records[0].fields.healthcare.sources.length,2);
+const tampered=structuredClone(manifest);tampered.countries[0].core8[0].summary='tampered';r=validateManifest(tampered);assert.equal(r.ok,false);assert.ok(r.manifestErrors.some(x=>x.startsWith('checksum mismatch')));
+const tooLong=structuredClone(manifest);tooLong.countries[1].core8[1].headline='X'.repeat(111);tooLong.checksum.canonical_json_without_checksum=checksum(tooLong);r=validateManifest(tooLong);assert.equal(r.ok,false);assert.ok(r.failed.includes('DNK'));
+const holdLeak=structuredClone(manifest);holdLeak.batch.clean.push('ARE');holdLeak.checksum.canonical_json_without_checksum=checksum(holdLeak);r=validateManifest(holdLeak);assert.equal(r.ok,false);assert.ok(r.manifestErrors.some(x=>x.includes('HOLD leakage')));
+const noRefresh=structuredClone(manifest);noRefresh.countries[2].core8.find(f=>f.field_id==='safety_context').flags.release_refresh_required=false;noRefresh.checksum.canonical_json_without_checksum=checksum(noRefresh);r=validateManifest(noRefresh);assert.equal(r.ok,false);assert.ok(r.failed.includes('FIN'));
+console.log(JSON.stringify({status:'PASS',canonicalSchema:true,cleanBatch:5,heldIsolation:true,readyWatchSeparation:true,textLimits:true,multiSource:true,releaseRefresh:true,checksumTamperDetection:true},null,2));
