@@ -1,0 +1,176 @@
+name: ATLAS PEX-D1I Germany Live Smoke R2
+
+on:
+  push:
+    branches:
+      - ops/atlas-pex-d1i-germany-live-smoke-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke-r2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify QA wrapper preserves exact Product bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          C=abafbe9ec7777b65f68c39ae6fab024be25abaae
+          git diff --exit-code "$C" -- atlas-exit/index.html atlas-exit/country-evidence-germany.js atlas-exit/country-evidence-united-kingdom.js atlas-exit/sitemap.xml atlas-exit/conflict-tensions.js atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html
+
+      - name: Verify exact public served bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa-artifacts
+          matched=0
+          for i in $(seq 1 24); do
+            q="$(date +%s)-$i"
+            ok=1
+            curl -fsSL -H 'Cache-Control: no-cache' --retry 2 "https://atlas-expat.fr/index.html?qa=$q" -o /tmp/live-index.html || ok=0
+            curl -fsSL -H 'Cache-Control: no-cache' --retry 2 "https://atlas-expat.fr/country-evidence-germany.js?qa=$q" -o /tmp/live-de.js || ok=0
+            if [ "$ok" = 1 ] && cmp -s /tmp/live-index.html atlas-exit/index.html && cmp -s /tmp/live-de.js atlas-exit/country-evidence-germany.js; then matched=1; break; fi
+            sleep 5
+          done
+          test "$matched" = 1
+          {
+            echo 'PUBLIC / LOCAL SHA256'
+            sha256sum /tmp/live-index.html /tmp/live-de.js atlas-exit/index.html atlas-exit/country-evidence-germany.js
+          } | tee qa-artifacts/served-byte-sha256.txt
+
+      - name: Install Chromium
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Public Chromium desktop/mobile smoke
+        shell: bash
+        run: |
+          cat > /tmp/live_qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          ROOT='https://atlas-expat.fr'
+          CANDIDATE='abafbe9ec7777b65f68c39ae6fab024be25abaae'
+          ROLLBACK='1c65748419c702d88255bcafc537ab792d3bde8f'
+          out=Path('qa-artifacts'); out.mkdir(exist_ok=True)
+          report={'candidate':CANDIDATE,'rollback':ROLLBACK,'viewports':{},'adjacent':{}}
+
+          def stub_external(page):
+              page.route('https://cloud.umami.is/**',lambda r:r.fulfill(status=200,content_type='application/javascript',body=''))
+              page.route('https://gateway.umami.is/**',lambda r:r.fulfill(status=204,body=''))
+
+          def no_overflow(page,w):
+              g=page.evaluate("() => ({doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,vw:innerWidth})")
+              assert g['doc'] <= w+1 and g['body'] <= w+1, g
+              ins=page.locator('#inspector')
+              if ins.count(): assert ins.evaluate('el=>el.scrollWidth<=el.clientWidth+1')
+              return g
+
+          def choose(page,name,cid,panel):
+              page.locator('#countrySearch').fill(name); page.wait_for_timeout(140)
+              row=page.locator(f'[data-country="{cid}"]').first
+              row.wait_for(state='attached',timeout=10000); row.evaluate('el=>el.click()')
+              page.wait_for_selector(panel,timeout=10000)
+              return page.locator(panel)
+
+          def open_panel(p):
+              if p.get_attribute('open') is None: p.locator(':scope > summary').click()
+
+          def explorer_gate(browser,label,vp):
+              page=browser.new_page(viewport=vp); stub_external(page)
+              pe=[]; ce=[]; se=[]
+              page.on('pageerror',lambda e: pe.append(str(e)))
+              page.on('console',lambda m: ce.append(m.text) if m.type=='error' else None)
+              page.on('requestfailed',lambda r: se.append(r.url) if r.url.startswith(ROOT) else None)
+              r=page.goto(ROOT+'/index.html',wait_until='domcontentloaded',timeout=45000); assert r and r.ok
+              page.wait_for_function("() => window.AtlasExplorer?.ready?.() && window.ATLAS_COUNTRY_EVIDENCE_GERMANY?.validation?.ok===true",timeout=20000)
+              assert page.evaluate("document.fonts.check('12px Manrope')")
+              no_overflow(page,vp['width'])
+
+              de=choose(page,'Allemagne','DEU','[data-atlas-germany-evidence][data-country="DEU"]'); open_panel(de)
+              assert de.locator('[data-evidence-field]').count()==8
+              assert de.locator('a.detail-source').count()==10
+              counts=de.locator('[data-source-count]').evaluate_all('els=>els.map(e=>Number(e.dataset.sourceCount))'); assert counts==[2,2],counts
+              assert all(x=='none' for x in de.locator('.atlas-evidence__row>p').evaluate_all('els=>els.map(e=>getComputedStyle(e).display)'))
+              assert 'Découvrir' not in page.locator('#inspector').inner_text()
+              dt=de.inner_text()
+              for s in ['15 %','19 %','7 %','GKV','PKV']:
+                  assert s.lower() in dt.lower(),(s,dt)
+              states=page.evaluate("() => window.ATLAS_COUNTRY_EVIDENCE_GERMANY.evidence.map(x=>x.state)")
+              assert states==['READY_FOR_PRODUCT']*8,states
+              src=de.locator('.atlas-evidence__source').first; src.locator('summary').click(); assert src.locator('a.detail-source').is_visible()
+              page.locator('[data-save="DEU"]').click(); assert page.locator('#savedCount').inner_text()=='1'
+              no_overflow(page,vp['width'])
+
+              uk=choose(page,'Royaume-Uni','GBR','[data-atlas-united-kingdom-evidence][data-country="GBR"]'); open_panel(uk)
+              assert uk.locator('[data-evidence-field]').count()==8 and uk.locator('a.detail-source').count()==11
+              page.locator('[data-save="GBR"]').click(); assert page.locator('#savedCount').inner_text()=='2'
+              no_overflow(page,vp['width'])
+
+              can=choose(page,'Canada','CAN','[data-atlas-canada-evidence][data-country="CAN"]'); open_panel(can)
+              assert can.locator('[data-evidence-field]').count()==8 and can.locator('a.detail-source').count()==11
+              assert all(x=='none' for x in can.locator('.atlas-evidence__row>p').evaluate_all('els=>els.map(e=>getComputedStyle(e).display)'))
+              no_overflow(page,vp['width'])
+
+              page.locator('[data-layer="conflict"]').evaluate('el=>el.click()')
+              choose(page,'Japon','JPN','[data-conflict-panel]'); page.wait_for_function("() => /17:54/.test(document.querySelector('[data-conflict-panel]')?.textContent||'')",timeout=10000)
+              jt=page.locator('[data-conflict-panel]').inner_text(); assert '590 km' in jt and '70 km' in jt
+              choose(page,'Thaïlande','THA','[data-conflict-panel]'); tt=page.locator('[data-conflict-panel]').inner_text(); assert 'Cambodge' in tt
+              page.locator('[data-layer="tax"]').evaluate('el=>el.click()')
+
+              page.locator('#countrySearch').fill('Allemagne'); page.wait_for_timeout(120); assert page.locator('[data-country="DEU"]').count()==1
+              page.locator('#countrySearch').fill(''); page.locator('[data-region="Europe"]').evaluate('el=>el.click()'); page.wait_for_timeout(100)
+              assert int(''.join(x for x in page.locator('#resultCount').inner_text() if x.isdigit()) or '0')>0
+              page.locator('#resetFilters').evaluate('el=>el.click()'); page.wait_for_timeout(120)
+              z0=page.locator('#zoomValue').inner_text(); page.locator('#zoomOut').evaluate('el=>el.click()'); page.wait_for_timeout(300); z1=page.locator('#zoomValue').inner_text(); assert z1!=z0
+              page.locator('#zoomIn').evaluate('el=>el.click()'); page.wait_for_timeout(300); z2=page.locator('#zoomValue').inner_text(); assert z2!=z1
+              page.locator('#openCompare').evaluate('el=>el.click()'); page.locator('#compareDialog').wait_for(state='visible',timeout=10000); page.wait_for_timeout(150)
+              cmp=page.locator('#compareTable').inner_text(); assert 'Allemagne' in cmp and 'Royaume-Uni' in cmp
+              page.locator('#compareDialog [data-close]').evaluate('el=>el.click()')
+              no_overflow(page,vp['width'])
+              page.screenshot(path=str(out/f'de-live-r2-{label}.png'),full_page=True)
+              assert not pe,pe; assert not ce,ce; assert not se,se
+              data={'status':r.status,'fields':8,'sourceLinks':10,'multiSource':counts,'readyStates':8,'ukRegression':True,'canadaCompact':True,'japanConflict':True,'thailandConflict':True,'zoom':[z0,z1,z2],'errors':[]}
+              page.close(); return data
+
+          def adjacent(browser,path,kind):
+              p=browser.new_page(viewport={'width':1440,'height':1000}); stub_external(p)
+              pe=[]; ce=[]; se=[]
+              p.on('pageerror',lambda e: pe.append(str(e)))
+              p.on('console',lambda m: ce.append(m.text) if m.type=='error' else None)
+              p.on('requestfailed',lambda r: se.append(r.url) if r.url.startswith(ROOT) else None)
+              r=p.goto(ROOT+'/'+path,wait_until='domcontentloaded',timeout=45000); assert r and r.ok; p.wait_for_timeout(350); no_overflow(p,1440)
+              assert p.locator('link[rel="canonical"]').count()==1 and p.locator('meta[name="description"]').count()==1
+              if kind=='guide': assert 'V15' in p.locator('body').inner_text() and p.locator('[data-atlas-event="guide_download_click"]').count()==2 and p.locator('text=29 €').count()==0
+              elif kind=='roadmap': assert p.locator('[data-step]').count()==8 and p.locator('#routeForm').count()==1 and p.locator('script[src^="parcours-usa.js"]').count()==1
+              elif kind=='accompagnement': assert p.locator('[data-program]').count()==3 and p.locator('text=29 €').count()==0
+              assert not pe,pe; assert not ce,ce; assert not se,se
+              d={'status':r.status,'title':p.title(),'kind':kind}; p.close(); return d
+
+          with sync_playwright() as pw:
+              b=pw.chromium.launch(headless=True)
+              report['viewports']['desktop']=explorer_gate(b,'desktop',{'width':1440,'height':1000})
+              report['viewports']['mobile']=explorer_gate(b,'mobile',{'width':390,'height':844})
+              report['adjacent']['guide']=adjacent(b,'offres.html','guide')
+              report['adjacent']['roadmap']=adjacent(b,'parcours-usa.html','roadmap')
+              report['adjacent']['accompagnement']=adjacent(b,'accompagnement.html','accompagnement')
+              b.close()
+          report['status']='PASS'; (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8'); print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/live_qa.py
+
+      - name: Upload live-smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-pex-d1i-germany-live-smoke-r2
+          path: qa-artifacts
+          if-no-files-found: error
