@@ -45,8 +45,9 @@ function tags(html, name) {
   return [...html.matchAll(re)].map(m => m[0]);
 }
 function attr(tag, name) {
-  const re = new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, 'i');
-  return (tag.match(re) || [])[1] ?? null;
+  const re = new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`, 'i');
+  const match = tag.match(re);
+  return match ? match[2] : null;
 }
 function anchors(html) {
   return tags(html, 'a').map(tag => ({
