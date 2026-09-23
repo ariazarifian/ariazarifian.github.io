@@ -1,4 +1,4 @@
-/* PEX-CF1 — shared data-first runtime for ordinary normalized-country batches.
+/* PEX-CF2 — shared data-first runtime for ordinary normalized-country batches.
    Consumes generated batch metadata + generated records only; no country facts live here. */
 (function(root){
 'use strict';
@@ -12,20 +12,29 @@ const sourcesFor=(core,field)=>core.sourcesFor?core.sourcesFor(field):(Array.isA
 const activeCountryId=container=>container?.querySelector('[data-save]')?.getAttribute('data-save')||null;
 const dateLabel=value=>{const [y,m,d]=String(value||'').split('-');return y&&m&&d?`${d}.${m}.${y}`:value||'—';};
 const stateLabel=state=>/^READY_WITH_CAVEAT/.test(state)?'Vérifié · limites':/^READY/.test(state)?'Vérifié':'À revalider';
+const batchDefs=()=>[
+  {meta:root.ATLAS_COUNTRY_FACTORY_META,records:root.ATLAS_COUNTRY_FACTORY_RECORDS},
+  {meta:root.ATLAS_COUNTRY_FACTORY_B2_META,records:root.ATLAS_COUNTRY_FACTORY_B2_RECORDS}
+].filter(x=>x.meta||x.records);
 function boot(){
-  const core=root.ATLAS_COUNTRY_EVIDENCE,meta=root.ATLAS_COUNTRY_FACTORY_META,rawRecords=root.ATLAS_COUNTRY_FACTORY_RECORDS;
-  if(!core||!meta||!Array.isArray(rawRecords)||!root.AtlasExplorer?.ready?.()){if(attempts++<250)root.setTimeout(boot,40);return;}
-  if(root.ATLAS_COUNTRY_FACTORY?.manifestChecksum===meta.manifestChecksum)return;
-  if(meta.schemaVersion!=='atlas-country-factory-runtime-v1'||!Array.isArray(meta.clean)||!Array.isArray(meta.held)){console.error('ATLAS Country Factory metadata invalid');return;}
-  const expected=[...meta.clean].sort();const loaded=rawRecords.map(r=>String(r?.iso3||r?.key||'').toUpperCase()).sort();
-  if(JSON.stringify(expected)!==JSON.stringify(loaded)||loaded.some(id=>meta.held.includes(id))){console.error('ATLAS Country Factory CLEAN/HELD record set mismatch',{expected,loaded,held:meta.held});return;}
-  const records={};const failures=[];
-  for(const raw of rawRecords){const record=freezeDeep(raw),iso=String(record.iso3||record.key||'').toUpperCase();const validation=core.validateCountry(record);if(!iso||!validation.ok||!CORE8.every(k=>/^READY/.test(String(record.fields?.[k]?.state||'')))){failures.push({iso,validation});continue;}records[iso]=record;}
+  const core=root.ATLAS_COUNTRY_EVIDENCE,batches=batchDefs();
+  if(!core||!root.AtlasExplorer?.ready?.()||!batches.length||batches.some(b=>!b.meta||!Array.isArray(b.records))){if(attempts++<250)root.setTimeout(boot,40);return;}
+  const records={},failures=[],batchState=[],held=new Set();
+  for(const {meta,records:rawRecords} of batches){
+    if(meta.schemaVersion!=='atlas-country-factory-runtime-v1'||!Array.isArray(meta.clean)||!Array.isArray(meta.held)){console.error('ATLAS Country Factory metadata invalid',meta);return;}
+    const expected=[...meta.clean].map(String).sort();const loaded=rawRecords.map(r=>String(r?.iso3||r?.key||'').toUpperCase()).sort();
+    if(JSON.stringify(expected)!==JSON.stringify(loaded)||loaded.some(id=>meta.held.includes(id))){console.error('ATLAS Country Factory CLEAN/HELD record set mismatch',{manifestId:meta.manifestId,expected,loaded,held:meta.held});return;}
+    meta.held.forEach(id=>held.add(id));
+    for(const raw of rawRecords){const record=freezeDeep(raw),iso=String(record.iso3||record.key||'').toUpperCase();const validation=core.validateCountry(record);if(!iso||records[iso]||!validation.ok||!CORE8.every(k=>/^READY/.test(String(record.fields?.[k]?.state||'')))){failures.push({iso,manifestId:meta.manifestId,validation,duplicate:!!records[iso]});continue;}records[iso]=record;}
+    batchState.push(Object.freeze({manifestId:meta.manifestId,manifestVersion:meta.manifestVersion,manifestChecksum:meta.manifestChecksum,checkedOn:meta.checkedOn,registered:Object.freeze([...expected]),held:Object.freeze([...meta.held])}));
+  }
   if(failures.length){console.error('ATLAS Country Factory refused invalid generated records',failures);return;}
+  const b2=batchState.find(b=>b.manifestId==='DEX-CF2-B2');
+  if(root.ATLAS_COUNTRY_FACTORY?.runtimeVersion==='atlas-country-factory-runtime-v2'&&(!b2||root.ATLAS_COUNTRY_FACTORY.batchChecksums?.['DEX-CF2-B2']===b2.manifestChecksum))return;
   root.ATLAS_COUNTRY_EVIDENCE=Object.freeze({...core,countries:Object.freeze({...core.countries,...records})});
   const currentCore=root.ATLAS_COUNTRY_EVIDENCE,document=root.document;
   const explorerCountries=root.AtlasExplorer.getCountries?.()||[],explorerById=new Map(explorerCountries.map(c=>[c.id,c]));
-  for(const [iso] of Object.entries(records)){const country=explorerById.get(iso);if(country)Object.assign(country,{tax:null,taxLabel:'Repères sourcés',taxYear:'DEX-CF1 · 23.09.2026',scope:'Fiscalité conditionnelle · voir fiche',note:'CORE8 normalisé ; aucun taux réel synthétique.',src:null,taxKind:'country-factory'});}
+  for(const [iso,record] of Object.entries(records)){const country=explorerById.get(iso);if(country)Object.assign(country,{tax:null,taxLabel:'Repères sourcés',taxYear:`${record.evidenceBatch==='DEX-CF2-B2'?'DEX-CF2':'DEX-CF1'} · 23.09.2026`,scope:'Fiscalité conditionnelle · voir fiche',note:'CORE8 normalisé ; aucun taux réel synthétique.',src:null,taxKind:'country-factory'});}
   function rowMarkup(key,r){const display=currentCore.safeDisplay(r),checked=r.checkedOn||r.freshness?.watch?.checkedOn||r.verifiedOn;return `<article class="atlas-evidence__row" data-evidence-field="${esc(key)}" data-evidence-state="${esc(r.state)}"><div class="atlas-evidence__row-head"><span>${esc(currentCore.fieldLabels[key]||key)}</span><small>${esc(stateLabel(String(r.state)))}</small></div><strong>${esc(display.headline)}</strong><p>${esc(display.summary)}</p><details class="atlas-evidence__source"><summary>Source & limites</summary><p class="micro">${esc(r.jurisdiction||r.scope)} · vérifié ${esc(dateLabel(checked))} · ${esc(r.freshness?.cadence||'')}</p><p class="micro">${esc(r.caveat)}</p>${currentCore.renderSources(r)}</details></article>`;}
   function panelMarkup(record){const count=CORE8.reduce((n,k)=>n+sourcesFor(currentCore,record.fields[k]).length,0);return `<details class="context-disclosure atlas-evidence" data-atlas-country-factory-evidence data-country="${esc(record.iso3)}"><summary>Repères sourcés · vie, statut & fiscalité</summary><section class="detail-section atlas-evidence__section"><div class="atlas-evidence__intro"><span class="eyebrow">EVIDENCE LAYER · ${esc(record.schemaVersion)}</span><p>8 repères officiels vérifiés · ${count} source${count>1?'s':''} directe${count>1?'s':''}. Détails, conditions et limites restent disponibles à la demande.</p></div><div class="atlas-evidence__group"><h3>Fiscalité</h3>${FISCAL.map(k=>rowMarkup(k,record.fields[k])).join('')}</div><div class="atlas-evidence__group"><h3>Vie & statut</h3>${PRACTICAL.map(k=>rowMarkup(k,record.fields[k])).join('')}</div></section></details>`;}
   function reconcileInspector(container,iso){const legacyTax=container.querySelector('.tax-stack');if(legacyTax){legacyTax.hidden=true;legacyTax.dataset.atlasLegacyReconciled=iso;}const legacyDisclosure=container.querySelector('.source-disclosure');if(legacyDisclosure){legacyDisclosure.hidden=true;legacyDisclosure.dataset.atlasLegacyReconciled=iso;}for(const section of container.querySelectorAll('.detail-section')){const heading=section.querySelector('h3')?.textContent?.trim();if(heading==='INSTALLATION · PREMIER REPÈRE'){section.hidden=true;section.dataset.atlasLegacyReconciled=iso;}}}
@@ -37,7 +46,7 @@ function boot(){
   const compare=document.querySelector('#compareTable');if(compare){enhanceComparator();new MutationObserver(()=>queueMicrotask(enhanceComparator)).observe(compare,{childList:true,subtree:true});}
   root.setTimeout(enhanceInspector,0);root.setTimeout(enhanceComparator,0);
   const search=document.querySelector('#countrySearch');if(search)search.dispatchEvent(new Event('input',{bubbles:true}));
-  root.ATLAS_COUNTRY_FACTORY=Object.freeze({schemaVersion:meta.schemaVersion,manifestId:meta.manifestId,manifestVersion:meta.manifestVersion,manifestChecksum:meta.manifestChecksum,checkedOn:meta.checkedOn,registered:Object.freeze(Object.keys(records)),held:Object.freeze([...meta.held]),orphanRecords:Object.freeze(explorerPresence()),recordCount:Object.keys(records).length});
+  const first=batchState[0];root.ATLAS_COUNTRY_FACTORY=Object.freeze({runtimeVersion:'atlas-country-factory-runtime-v2',schemaVersion:first?.schemaVersion||'atlas-country-factory-runtime-v1',manifestId:first?.manifestId,manifestVersion:first?.manifestVersion,manifestChecksum:first?.manifestChecksum,checkedOn:first?.checkedOn,batches:Object.freeze(batchState),batchChecksums:Object.freeze(Object.fromEntries(batchState.map(b=>[b.manifestId,b.manifestChecksum]))),registered:Object.freeze(Object.keys(records)),held:Object.freeze([...held]),orphanRecords:Object.freeze(explorerPresence()),recordCount:Object.keys(records).length});
 }
 boot();
 })(typeof window!=='undefined'?window:globalThis);
