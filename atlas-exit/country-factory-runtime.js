@@ -1,93 +1,40 @@
 /* PEX-CF1 — shared data-first runtime for ordinary normalized-country batches.
-   Consumes generated ATLAS_COUNTRY_FACTORY_BATCH records only; no country facts live here. */
+   Consumes generated batch metadata + generated records only; no country facts live here. */
 (function(root){
 'use strict';
 if(!root||!root.document)return;
 let attempts=0;
 const CORE8=['tax_residency','pit','cit_business','consumption_tax','cost_context','residence_visa','healthcare','safety_context'];
 const FISCAL=CORE8.slice(0,4),PRACTICAL=CORE8.slice(4);
-const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
 const freezeDeep=value=>{if(!value||typeof value!=='object'||Object.isFrozen(value))return value;Object.values(value).forEach(freezeDeep);return Object.freeze(value);};
 const sourcesFor=(core,field)=>core.sourcesFor?core.sourcesFor(field):(Array.isArray(field?.sources)?field.sources:(field?.source?[field.source]:[]));
 const activeCountryId=container=>container?.querySelector('[data-save]')?.getAttribute('data-save')||null;
 const dateLabel=value=>{const [y,m,d]=String(value||'').split('-');return y&&m&&d?`${d}.${m}.${y}`:value||'—';};
 const stateLabel=state=>/^READY_WITH_CAVEAT/.test(state)?'Vérifié · limites':/^READY/.test(state)?'Vérifié':'À revalider';
-
 function boot(){
-  const core=root.ATLAS_COUNTRY_EVIDENCE,batch=root.ATLAS_COUNTRY_FACTORY_BATCH;
-  if(!core||!batch){if(attempts++<250)root.setTimeout(boot,40);return;}
-  if(root.ATLAS_COUNTRY_FACTORY?.manifestChecksum===batch.manifestChecksum)return;
-  if(batch.schemaVersion!=='atlas-country-factory-runtime-v1'||!Array.isArray(batch.records)){console.error('ATLAS Country Factory runtime payload invalid');return;}
-
-  const records={};
-  const failures=[];
-  for(const raw of batch.records){
-    const record=freezeDeep(raw),iso=String(record.iso3||record.key||'').toUpperCase();
-    const validation=core.validateCountry(record);
-    if(!iso||!validation.ok||!CORE8.every(k=>/^READY/.test(String(record.fields?.[k]?.state||'')))){failures.push({iso,validation});continue;}
-    records[iso]=record;
-  }
+  const core=root.ATLAS_COUNTRY_EVIDENCE,meta=root.ATLAS_COUNTRY_FACTORY_META,rawRecords=root.ATLAS_COUNTRY_FACTORY_RECORDS;
+  if(!core||!meta||!Array.isArray(rawRecords)){if(attempts++<250)root.setTimeout(boot,40);return;}
+  if(root.ATLAS_COUNTRY_FACTORY?.manifestChecksum===meta.manifestChecksum)return;
+  if(meta.schemaVersion!=='atlas-country-factory-runtime-v1'||!Array.isArray(meta.clean)||!Array.isArray(meta.held)){console.error('ATLAS Country Factory metadata invalid');return;}
+  const expected=[...meta.clean].sort();const loaded=rawRecords.map(r=>String(r?.iso3||r?.key||'').toUpperCase()).sort();
+  if(JSON.stringify(expected)!==JSON.stringify(loaded)||loaded.some(id=>meta.held.includes(id))){console.error('ATLAS Country Factory CLEAN/HELD record set mismatch',{expected,loaded,held:meta.held});return;}
+  const records={};const failures=[];
+  for(const raw of rawRecords){const record=freezeDeep(raw),iso=String(record.iso3||record.key||'').toUpperCase();const validation=core.validateCountry(record);if(!iso||!validation.ok||!CORE8.every(k=>/^READY/.test(String(record.fields?.[k]?.state||'')))){failures.push({iso,validation});continue;}records[iso]=record;}
   if(failures.length){console.error('ATLAS Country Factory refused invalid generated records',failures);return;}
-
   root.ATLAS_COUNTRY_EVIDENCE=Object.freeze({...core,countries:Object.freeze({...core.countries,...records})});
-  const currentCore=root.ATLAS_COUNTRY_EVIDENCE;
-  const document=root.document;
-
-  function rowMarkup(key,r){
-    const display=currentCore.safeDisplay(r),checked=r.checkedOn||r.freshness?.checkedOn||r.verifiedOn;
-    return `<article class="atlas-evidence__row" data-evidence-field="${esc(key)}" data-evidence-state="${esc(r.state)}"><div class="atlas-evidence__row-head"><span>${esc(currentCore.fieldLabels[key]||key)}</span><small>${esc(stateLabel(String(r.state)))}</small></div><strong>${esc(display.headline)}</strong><p>${esc(display.summary)}</p><details class="atlas-evidence__source"><summary>Source & limites</summary><p class="micro">${esc(r.jurisdiction||r.scope)} · vérifié ${esc(dateLabel(checked))} · ${esc(r.freshness?.cadence||'')}</p><p class="micro">${esc(r.caveat)}</p>${currentCore.renderSources(r)}</details></article>`;
-  }
-  function panelMarkup(record){
-    const count=CORE8.reduce((n,k)=>n+sourcesFor(currentCore,record.fields[k]).length,0);
-    return `<details class="context-disclosure atlas-evidence" data-atlas-country-factory-evidence data-country="${esc(record.iso3)}"><summary>Repères sourcés · vie, statut & fiscalité</summary><section class="detail-section atlas-evidence__section"><div class="atlas-evidence__intro"><span class="eyebrow">EVIDENCE LAYER · ${esc(record.schemaVersion)}</span><p>8 repères officiels vérifiés · ${count} source${count>1?'s':''} directe${count>1?'s':''}. Détails, conditions et limites restent disponibles à la demande.</p></div><div class="atlas-evidence__group"><h3>Fiscalité</h3>${FISCAL.map(k=>rowMarkup(k,record.fields[k])).join('')}</div><div class="atlas-evidence__group"><h3>Vie & statut</h3>${PRACTICAL.map(k=>rowMarkup(k,record.fields[k])).join('')}</div></section></details>`;
-  }
-  function reconcileInspector(container,iso){
-    const legacyTax=container.querySelector('.tax-stack');if(legacyTax){legacyTax.hidden=true;legacyTax.dataset.atlasLegacyReconciled=iso;}
-    const legacyDisclosure=container.querySelector('.source-disclosure');if(legacyDisclosure){legacyDisclosure.hidden=true;legacyDisclosure.dataset.atlasLegacyReconciled=iso;}
-    for(const section of container.querySelectorAll('.detail-section')){const heading=section.querySelector('h3')?.textContent?.trim();if(heading==='INSTALLATION · PREMIER REPÈRE'){section.hidden=true;section.dataset.atlasLegacyReconciled=iso;}}
-  }
-  function enhanceInspector(){
-    const container=document.querySelector('#inspectorContent');if(!container)return;
-    const id=activeCountryId(container),record=records[id],existing=container.querySelector('[data-atlas-country-factory-evidence]');
-    if(!record){if(existing)existing.remove();return;}
-    if(existing&&existing.getAttribute('data-country')!==id)existing.remove();
-    reconcileInspector(container,id);
-    if(container.querySelector(`[data-atlas-country-factory-evidence][data-country="${CSS.escape(id)}"]`))return;
-    const anchor=container.querySelector('.capital-card')||container.querySelector('.tax-stack')||container.querySelector('.detail-section');if(!anchor)return;
-    const wrapper=document.createElement('div');wrapper.innerHTML=panelMarkup(record);anchor.insertAdjacentElement('afterend',wrapper.firstElementChild);
-  }
-  function comparatorCopy(key,record){
-    const r=record.fields[key],display=currentCore.safeDisplay(r);
-    return `<span class="val">${esc(display.headline)}</span><small>${esc(display.summary)}</small>`;
-  }
-  function enhanceComparator(){
-    const table=document.querySelector('#compareTable table');if(!table)return;
-    const headers=[...table.querySelectorAll('thead th')];
-    const rowByLabel=label=>[...table.querySelectorAll('tbody tr')].find(tr=>tr.querySelector('td')?.textContent.trim()===label);
-    for(const [iso,record] of Object.entries(records)){
-      const idx=headers.findIndex(th=>(th.textContent||'').trim()===record.country);if(idx<1)continue;
-      const set=(label,key)=>{const target=rowByLabel(label)?.querySelectorAll('td')?.[idx];if(!target||target.dataset.atlasNormalized===iso)return;target.innerHTML=comparatorCopy(key,record);target.dataset.atlasNormalized=iso;};
-      set('Revenu','pit');set('Sociétés','cit_business');set('TVA / consommation','consumption_tax');
-      const special=rowByLabel('Taxes particulières')?.querySelectorAll('td')?.[idx];if(special&&special.dataset.atlasNormalized!==iso){special.innerHTML=`<small>${esc(record.fields.tax_residency.caveat)}</small>`;special.dataset.atlasNormalized=iso;}
-    }
-  }
-  function applyExplicitLegacyPatches(){
-    for(const [iso,record] of Object.entries(records)){
-      const patch=record.legacyPatch;if(!patch||typeof patch!=='object')continue;
-      if(root.ATLAS_TAX?.[iso])Object.assign(root.ATLAS_TAX[iso],patch);
-      if(root.ATLAS_CATALOG?.[iso])Object.assign(root.ATLAS_CATALOG[iso],patch);
-    }
-  }
-  function explorerPresence(){
-    const countries=root.AtlasExplorer?.getCountries?.()||[];
-    const ids=new Set(countries.map(c=>c.id));
-    return Object.keys(records).filter(id=>!ids.has(id));
-  }
-  applyExplicitLegacyPatches();
+  const currentCore=root.ATLAS_COUNTRY_EVIDENCE,document=root.document;
+  function rowMarkup(key,r){const display=currentCore.safeDisplay(r),checked=r.checkedOn||r.freshness?.watch?.checkedOn||r.verifiedOn;return `<article class="atlas-evidence__row" data-evidence-field="${esc(key)}" data-evidence-state="${esc(r.state)}"><div class="atlas-evidence__row-head"><span>${esc(currentCore.fieldLabels[key]||key)}</span><small>${esc(stateLabel(String(r.state)))}</small></div><strong>${esc(display.headline)}</strong><p>${esc(display.summary)}</p><details class="atlas-evidence__source"><summary>Source & limites</summary><p class="micro">${esc(r.jurisdiction||r.scope)} · vérifié ${esc(dateLabel(checked))} · ${esc(r.freshness?.cadence||'')}</p><p class="micro">${esc(r.caveat)}</p>${currentCore.renderSources(r)}</details></article>`;}
+  function panelMarkup(record){const count=CORE8.reduce((n,k)=>n+sourcesFor(currentCore,record.fields[k]).length,0);return `<details class="context-disclosure atlas-evidence" data-atlas-country-factory-evidence data-country="${esc(record.iso3)}"><summary>Repères sourcés · vie, statut & fiscalité</summary><section class="detail-section atlas-evidence__section"><div class="atlas-evidence__intro"><span class="eyebrow">EVIDENCE LAYER · ${esc(record.schemaVersion)}</span><p>8 repères officiels vérifiés · ${count} source${count>1?'s':''} directe${count>1?'s':''}. Détails, conditions et limites restent disponibles à la demande.</p></div><div class="atlas-evidence__group"><h3>Fiscalité</h3>${FISCAL.map(k=>rowMarkup(k,record.fields[k])).join('')}</div><div class="atlas-evidence__group"><h3>Vie & statut</h3>${PRACTICAL.map(k=>rowMarkup(k,record.fields[k])).join('')}</div></section></details>`;}
+  function reconcileInspector(container,iso){const legacyTax=container.querySelector('.tax-stack');if(legacyTax){legacyTax.hidden=true;legacyTax.dataset.atlasLegacyReconciled=iso;}const legacyDisclosure=container.querySelector('.source-disclosure');if(legacyDisclosure){legacyDisclosure.hidden=true;legacyDisclosure.dataset.atlasLegacyReconciled=iso;}for(const section of container.querySelectorAll('.detail-section')){const heading=section.querySelector('h3')?.textContent?.trim();if(heading==='INSTALLATION · PREMIER REPÈRE'){section.hidden=true;section.dataset.atlasLegacyReconciled=iso;}}}
+  function enhanceInspector(){const container=document.querySelector('#inspectorContent');if(!container)return;const id=activeCountryId(container),record=records[id],existing=container.querySelector('[data-atlas-country-factory-evidence]');if(!record){if(existing)existing.remove();return;}if(existing&&existing.getAttribute('data-country')!==id)existing.remove();reconcileInspector(container,id);if(container.querySelector(`[data-atlas-country-factory-evidence][data-country="${CSS.escape(id)}"]`))return;const anchor=container.querySelector('.capital-card')||container.querySelector('.tax-stack')||container.querySelector('.detail-section');if(!anchor)return;const wrapper=document.createElement('div');wrapper.innerHTML=panelMarkup(record);anchor.insertAdjacentElement('afterend',wrapper.firstElementChild);}
+  function comparatorCopy(key,record){const r=record.fields[key],display=currentCore.safeDisplay(r);return `<span class="val">${esc(display.headline)}</span><small>${esc(display.summary)}</small>`;}
+  function enhanceComparator(){const table=document.querySelector('#compareTable table');if(!table)return;const headers=[...table.querySelectorAll('thead th')];const rowByLabel=label=>[...table.querySelectorAll('tbody tr')].find(tr=>tr.querySelector('td')?.textContent.trim()===label);for(const [iso,record] of Object.entries(records)){const idx=headers.findIndex(th=>(th.textContent||'').trim()===record.country);if(idx<1)continue;const set=(label,key)=>{const target=rowByLabel(label)?.querySelectorAll('td')?.[idx];if(!target||target.dataset.atlasNormalized===iso)return;target.innerHTML=comparatorCopy(key,record);target.dataset.atlasNormalized=iso;};set('Revenu','pit');set('Sociétés','cit_business');set('TVA / consommation','consumption_tax');const special=rowByLabel('Taxes particulières')?.querySelectorAll('td')?.[idx];if(special&&special.dataset.atlasNormalized!==iso){special.innerHTML=`<small>${esc(record.fields.tax_residency.caveat)}</small>`;special.dataset.atlasNormalized=iso;}}}
+  function explorerPresence(){const countries=root.AtlasExplorer?.getCountries?.()||[];const ids=new Set(countries.map(c=>c.id));return Object.keys(records).filter(id=>!ids.has(id));}
   const inspector=document.querySelector('#inspectorContent');if(inspector){enhanceInspector();new MutationObserver(()=>queueMicrotask(enhanceInspector)).observe(inspector,{childList:true,subtree:true});}
   const compare=document.querySelector('#compareTable');if(compare){enhanceComparator();new MutationObserver(()=>queueMicrotask(enhanceComparator)).observe(compare,{childList:true,subtree:true});}
   root.setTimeout(enhanceInspector,0);root.setTimeout(enhanceComparator,0);
-  root.ATLAS_COUNTRY_FACTORY=Object.freeze({schemaVersion:'atlas-country-factory-runtime-v1',manifestVersion:batch.manifestVersion,manifestChecksum:batch.manifestChecksum,checkedOn:batch.checkedOn,registered:Object.freeze(Object.keys(records)),held:Object.freeze([...(batch.held||[])]),orphanRecords:Object.freeze(explorerPresence()),recordCount:Object.keys(records).length});
+  root.ATLAS_COUNTRY_FACTORY=Object.freeze({schemaVersion:meta.schemaVersion,manifestId:meta.manifestId,manifestVersion:meta.manifestVersion,manifestChecksum:meta.manifestChecksum,checkedOn:meta.checkedOn,registered:Object.freeze(Object.keys(records)),held:Object.freeze([...meta.held]),orphanRecords:Object.freeze(explorerPresence()),recordCount:Object.keys(records).length});
 }
 boot();
 })(typeof window!=='undefined'?window:globalThis);
