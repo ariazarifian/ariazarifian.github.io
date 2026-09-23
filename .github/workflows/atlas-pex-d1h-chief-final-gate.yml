@@ -1,0 +1,49 @@
+name: Atlas PEX-D1H UK Chief final gate
+on:
+  push:
+    branches: [ops/atlas-pex-d1h-uk-rcurrent2-qa-20260923]
+permissions:
+  contents: read
+jobs:
+  final-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve QA harness and checkout exact Product candidate
+        run: |
+          cp scripts/pex_d1h_qa4.cjs /tmp/qa.cjs
+          sed -i 's/7b312a3aa91035d5e04dbb42695cddcd6e20859f/1c65748419c702d88255bcafc537ab792d3bde8f/g; s/21193f4a42be246d968d7c9e3118ac8229bc3399/d6c2e05ae746f961a8a31655cbe341802c748ac0/g' /tmp/qa.cjs
+          git checkout --detach 1c65748419c702d88255bcafc537ab792d3bde8f
+      - name: Exact lineage scope and preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=d6c2e05ae746f961a8a31655cbe341802c748ac0
+          C=1c65748419c702d88255bcafc537ab792d3bde8f
+          test "$(git rev-parse HEAD)" = "$C"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          test "$(git diff --name-only "$BASE" "$C" | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-united-kingdom.js atlas-exit/index.html | sort)"
+          git diff --exit-code "$BASE" "$C" -- atlas-exit/sitemap.xml atlas-exit/script.js atlas-exit/atlas-country-evidence.css atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html
+          node --check atlas-exit/country-evidence-united-kingdom.js
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact candidate
+        run: |
+          python3 -m http.server 8000 >/tmp/http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && exit 0; sleep 1; done
+          cat /tmp/http.log; exit 1
+      - name: Full Chromium desktop mobile gate
+        run: |
+          timeout 180s node /tmp/qa.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-d1h-uk-chief-final-gate
+          path: qa-artifacts
+          if-no-files-found: warn
