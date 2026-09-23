@@ -1,0 +1,60 @@
+name: ATLAS PEX-D1J Portugal Live Smoke
+on:
+  push:
+    branches: [ops/atlas-pex-d1j-portugal-live-smoke-20260923]
+permissions:
+  contents: read
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify QA wrapper preserves exact Product bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          C=99a90012fd25c75d112be4f6dc63ab848d738928
+          git diff --exit-code "$C" -- atlas-exit/index.html atlas-exit/country-evidence-portugal.js atlas-exit/country-evidence-germany.js atlas-exit/country-evidence-united-kingdom.js atlas-exit/sitemap.xml atlas-exit/conflict-tensions.js atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html
+      - name: Verify exact public served bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa-artifacts
+          q="$(date +%s)"
+          for i in {1..20}; do
+            if curl -fsSL -H 'Cache-Control: no-cache' "https://atlas-expat.fr/index.html?qa=$q-$i" -o /tmp/live-index.html && curl -fsSL -H 'Cache-Control: no-cache' "https://atlas-expat.fr/country-evidence-portugal.js?qa=$q-$i" -o /tmp/live-pt.js && cmp /tmp/live-index.html atlas-exit/index.html && cmp /tmp/live-pt.js atlas-exit/country-evidence-portugal.js; then break; fi
+            test "$i" -lt 20 || exit 1
+            sleep 3
+          done
+          sha256sum /tmp/live-index.html /tmp/live-pt.js atlas-exit/index.html atlas-exit/country-evidence-portugal.js | tee qa-artifacts/served-byte-sha256.txt
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Prepare proven Product gate for public origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show origin/ops/atlas-pex-d1j-portugal-qa-20260923:scripts/pex_d1j_portugal_qa.cjs > /tmp/live-qa.cjs
+          python3 - <<'PY'
+          p='/tmp/live-qa.cjs'
+          s=open(p).read()
+          s=s.replace('http://127.0.0.1:8000/atlas-exit/index.html','https://atlas-expat.fr/index.html')
+          s=s.replace('http://127.0.0.1:8000/atlas-exit/','https://atlas-expat.fr/')
+          s=s.replace("new globalThis.URL(r.url()).origin==='http://127.0.0.1:8000'","new globalThis.URL(r.url()).origin==='https://atlas-expat.fr'")
+          open(p,'w').write(s)
+          PY
+      - name: Public Chromium desktop mobile gate
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+        run: timeout 240s node /tmp/live-qa.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-d1j-portugal-live-smoke
+          path: qa-artifacts
+          if-no-files-found: error
