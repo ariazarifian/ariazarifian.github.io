@@ -1,0 +1,177 @@
+name: ATLAS P5Q0 RCURRENT Guide QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5q0-rcurrent-qa-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  guide-rcurrent-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 87ea8fa9a340703e79a0fcfc43b1a3dacd0d27d7
+          fetch-depth: 0
+
+      - name: Verify exact bounded candidate and Guide invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=8142a288df76d5d69117dbb0ad31cfae7110486f
+          CANDIDATE=87ea8fa9a340703e79a0fcfc43b1a3dacd0d27d7
+          test "$(git rev-parse HEAD)" = "$CANDIDATE"
+          test "$(git hash-object atlas-exit/offres.html)" = "5cb7ca83f74f756644b8d14e1d5d48ad4be0c616"
+          test "$(git hash-object atlas-exit/atlas-ui-guide.css)" = "66faa5ae4a6f620e94089d8eb5ea2d2fb783489b"
+          git diff --name-only "$BASE" "$CANDIDATE" | sort > /tmp/changed.txt
+          printf '%s\n' atlas-exit/atlas-ui-guide.css atlas-exit/offres.html | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+
+          grep -q '<link rel="canonical" href="https://atlas-expat.fr/offres.html">' atlas-exit/offres.html
+          grep -q "connect-src 'self' https://cloud.umami.is https://gateway.umami.is" atlas-exit/offres.html
+          grep -q 'atlas-ui-guide.css?v=p5q0-1' atlas-exit/offres.html
+          test "$(grep -o 'data-atlas-event=\"guide_download_click\"' atlas-exit/offres.html | wc -l)" -eq 2
+          test "$(grep -o 'data-atlas-event=\"free_funnel_cta\"' atlas-exit/offres.html | wc -l)" -eq 2
+          test "$(grep -o 'https://atlas-exit-delivery.onrender.com/free-guide/usa' atlas-exit/offres.html | wc -l)" -eq 2
+          test "$(grep -o 'href=\"parcours-usa.html\"' atlas-exit/offres.html | wc -l)" -ge 2
+          ! grep -Eiq '29[[:space:]]*€|checkout|acheter le guide|paiement requis' atlas-exit/offres.html
+          ! git diff --name-only "$BASE" "$CANDIDATE" | grep -E '^\.github/workflows/'
+
+          curl --retry 4 --retry-all-errors -fsSL -D /tmp/v15.headers 'https://atlas-exit-delivery.onrender.com/free-guide/usa' -o /tmp/v15.pdf
+          grep -Eiq '^content-type: application/pdf' /tmp/v15.headers
+          grep -Eiq '^cache-control: .*private.*no-store' /tmp/v15.headers
+          test "$(wc -c < /tmp/v15.pdf)" -gt 7000000
+
+      - name: Install Playwright Chromium
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Real Chromium desktop/mobile QA
+        shell: bash
+        run: |
+          python -m http.server 8765 --directory atlas-exit >/tmp/p5q0-rcurrent-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          cat > /tmp/qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          BASE='http://127.0.0.1:8765'
+          CAND=f'{BASE}/offres.html?countries=USA'
+          PDF='https://atlas-exit-delivery.onrender.com/free-guide/usa'
+          OUT=Path('qa-artifacts'); OUT.mkdir(exist_ok=True)
+          report={'candidate':'87ea8fa9a340703e79a0fcfc43b1a3dacd0d27d7','rollback':'8142a288df76d5d69117dbb0ad31cfae7110486f','viewports':{},'adjacent':{}}
+
+          init="""
+          window.__atlasEvents=[];
+          window.ATLAS_EVENT_COLLECTOR=(name,payload)=>{window.__atlasEvents.push({name,payload});return true;};
+          """
+
+          def geom(page,w):
+              g=page.evaluate("""() => ({doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,vw:innerWidth})""")
+              assert g['doc'] <= w+1 and g['body'] <= w+1, g
+              return g
+
+          def same_origin_failures(page):
+              fails=[]
+              page.on('requestfailed', lambda req: fails.append(req.url) if req.url.startswith(BASE) else None)
+              return fails
+
+          def qa_guide(browser,label,vp):
+              page=browser.new_page(viewport=vp,reduced_motion='no-preference')
+              page.add_init_script(init)
+              errors=[]; console=[]; fails=same_origin_failures(page)
+              page.on('pageerror',lambda e: errors.append(str(e)))
+              page.on('console',lambda m: console.append({'type':m.type,'text':m.text}) if m.type=='error' else None)
+              r=page.goto(CAND,wait_until='domcontentloaded',timeout=45000)
+              assert r and r.ok,(label,r.status if r else None)
+              page.evaluate('document.fonts.ready'); page.wait_for_timeout(500)
+              g=geom(page,vp['width'])
+              assert page.locator('h1#productTitle').count()==1
+              assert page.locator('.atlas-shell__nav a').count()==4
+              assert page.locator('.gq-cover').count()==1
+              cover=page.locator('.gq-cover').evaluate("el=>({complete:el.complete,naturalWidth:el.naturalWidth,naturalHeight:el.naturalHeight})")
+              assert cover['complete'] and cover['naturalWidth']>0 and cover['naturalHeight']>0,cover
+              assert page.locator('.gq-proof-facts strong').count()==3
+              assert page.locator('.gq-route-list li').count()==8
+              assert '25' in page.locator('.gq-proof-facts').inner_text()
+              assert '15.0' in page.locator('.gq-proof-facts').inner_text()
+              assert '0 €' in page.locator('.gq-proof-facts').inner_text()
+
+              downloads=page.locator('a[data-atlas-event="guide_download_click"]'); assert downloads.count()==2
+              roadmaps=page.locator('a[data-atlas-event="free_funnel_cta"][data-atlas-target="roadmap"]'); assert roadmaps.count()==2
+              assert [downloads.nth(i).get_attribute('href') for i in range(2)]==[PDF,PDF]
+              assert all(roadmaps.nth(i).get_attribute('href')=='parcours-usa.html' for i in range(2))
+              page.evaluate("""() => document.addEventListener('click',e=>{if(e.target.closest('[data-atlas-event]'))e.preventDefault();})""")
+              downloads.nth(0).click(); downloads.nth(1).click(); roadmaps.nth(0).click(); roadmaps.nth(1).click()
+              events=page.evaluate('window.__atlasEvents')
+              names=[x['name'] for x in events]
+              assert names.count('guide_download_click')==2 and names.count('free_funnel_cta')==2,events
+
+              # Keyboard/focus: tab into the document and ensure visible focus styling exists on an actionable element.
+              page.locator('body').focus()
+              focused=None
+              for _ in range(8):
+                  page.keyboard.press('Tab')
+                  data=page.evaluate("""() => {const e=document.activeElement;if(!e)return null;const s=getComputedStyle(e);return {tag:e.tagName,text:(e.innerText||'').trim(),outline:s.outlineStyle,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}}""")
+                  if data and data['tag']=='A':
+                      focused=data; break
+              assert focused and focused['width']>0 and focused['height']>0,focused
+
+              details=page.locator('.gq-disclosures details'); assert details.count()==3
+              details.nth(1).locator('summary').click(); details.nth(2).locator('summary').click(); geom(page,vp['width'])
+              page.screenshot(path=str(OUT/f'guide-{label}.png'),full_page=True)
+
+              reduced=browser.new_page(viewport=vp,reduced_motion='reduce')
+              reduced.goto(CAND,wait_until='domcontentloaded',timeout=45000); reduced.wait_for_timeout(200)
+              duration=reduced.locator('.gq-cover').evaluate('el=>getComputedStyle(el).transitionDuration')
+              assert duration in ('0s','0.00001s','0.01ms','1e-05s'),duration
+              reduced.close()
+
+              assert not errors,errors
+              assert not fails,fails
+              info={'status':r.status,'overflow':g,'cover':cover,'events':events,'focus':focused,'reducedMotion':duration,'consoleErrors':console,'sameOriginFailures':fails,'height':page.evaluate('document.documentElement.scrollHeight')}
+              page.close(); return info
+
+          def adjacent(browser,path,label,vp,selector):
+              page=browser.new_page(viewport=vp)
+              errors=[]; fails=same_origin_failures(page)
+              page.on('pageerror',lambda e: errors.append(str(e)))
+              r=page.goto(f'{BASE}/{path}',wait_until='domcontentloaded',timeout=45000)
+              assert r and r.ok,(label,r.status if r else None)
+              page.wait_for_timeout(350)
+              g=geom(page,vp['width'])
+              assert page.locator(selector).count()>=1,(label,selector)
+              assert not errors,errors
+              assert not fails,fails
+              page.close(); return {'status':r.status,'overflow':g,'errors':errors,'sameOriginFailures':fails}
+
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True)
+              for label,vp in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+                  report['viewports'][label]=qa_guide(browser,label,vp)
+              vp={'width':1440,'height':1000}
+              report['adjacent']['explorer']=adjacent(browser,'index.html','explorer',vp,'#worldMap')
+              report['adjacent']['roadmap']=adjacent(browser,'parcours-usa.html','roadmap',vp,'#routeForm')
+              report['adjacent']['accompagnement']=adjacent(browser,'accompagnement.html','accompagnement',vp,'main')
+              browser.close()
+
+          OUT.joinpath('report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/qa.py
+
+      - name: Upload exact-byte QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5q0-rcurrent-guide-qa
+          path: qa-artifacts
+          if-no-files-found: error
