@@ -1,137 +1,26 @@
+'use strict';
 const crypto=require('node:crypto');
-
 const CORE8=Object.freeze(['tax_residency','pit','cit_business','consumption_tax','cost_context','residence_visa','healthcare','safety_context']);
-const CONDITIONAL_FIELDS=new Set(['tax_residency','cit_business','residence_visa','healthcare']);
-const HEADLINE_MAX=96;
-const SUMMARY_MAX=320;
-const COUNTRY_NAME_MAX=64;
-const READY_RE=/^READY(?:_|$)/;
-const HOLD_RE=/^(?:HOLD|MISSING|BLOCKED)(?:_|$)/;
-const AUTHORITY_RE=/(?:^|[_/])(PRIMARY|OFFICIAL|STATUTE|LEGISLATURE|GOV|GOVERNMENT|MINISTRY|TAX_AUTHORITY|CONSULAR|STATISTICS|IMMIGRATION|HEALTH)(?:$|[_/])/i;
-const ISO3_RE=/^[A-Z]{3}$/;
-const DATE_RE=/^\d{4}-\d{2}-\d{2}$/;
-
-function stable(value){
-  if(Array.isArray(value))return value.map(stable);
-  if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(k=>[k,stable(value[k])]));
-  return value;
-}
-function stableStringify(value){return JSON.stringify(stable(value));}
-function digest(value){return crypto.createHash('sha256').update(stableStringify(value)).digest('hex');}
-function array(v){return Array.isArray(v)?v:[];}
-function sourcesFor(field){return Array.isArray(field?.sources)?field.sources.filter(Boolean):(field?.source?[field.source]:[]);}
-function nonEmpty(v){return typeof v==='string'&&v.trim().length>0;}
-function validUrl(v){try{const u=new URL(v);return u.protocol==='https:'||u.protocol==='http:';}catch{return false;}}
-function dateOf(field){return field?.checkedOn||field?.freshness?.checkedOn||null;}
-function readiness(field){return String(field?.state||'').trim();}
-function sourceEvidenceIds(field){
-  const direct=[];
-  if(nonEmpty(field?.evidenceId))direct.push(field.evidenceId.trim());
-  for(const id of array(field?.evidenceIds))if(nonEmpty(id))direct.push(id.trim());
-  for(const s of sourcesFor(field))if(nonEmpty(s?.evidenceId))direct.push(s.evidenceId.trim());
-  return [...new Set(direct)];
-}
-function minimumSources(field){
-  if(Number.isInteger(field?.multi_source_required)&&field.multi_source_required>0)return field.multi_source_required;
-  if(field?.multi_source_required===true)return 2;
-  if(Number.isInteger(field?.minSourceCount)&&field.minSourceCount>0)return field.minSourceCount;
-  return 1;
-}
-function hasConditions(field){
-  if(nonEmpty(field?.conditions))return true;
-  if(Array.isArray(field?.conditions)&&field.conditions.some(nonEmpty))return true;
-  return false;
-}
-function validateSource(source,path){
-  const errors=[];
-  if(!nonEmpty(source?.owner))errors.push(`${path}.owner missing`);
-  if(!nonEmpty(source?.locator)||!validUrl(source?.locator))errors.push(`${path}.locator invalid`);
-  if(!nonEmpty(source?.sourceClass))errors.push(`${path}.sourceClass missing`);
-  else if(!AUTHORITY_RE.test(source.sourceClass))errors.push(`${path}.sourceClass not authoritative: ${source.sourceClass}`);
-  if(!nonEmpty(source?.evidenceId))errors.push(`${path}.evidenceId missing`);
-  return errors;
-}
-function validateField(key,field){
-  const errors=[],holds=[],warnings=[];
-  if(!field||typeof field!=='object')return {errors:[`${key} missing`],holds,warnings,text:{headline:0,summary:0},sources:0};
-  const state=readiness(field);
-  if(!state)errors.push(`${key}.state missing`);
-  else if(HOLD_RE.test(state))holds.push(`${key}.state=${state}`);
-  else if(!READY_RE.test(state))errors.push(`${key}.state must be READY* for CLEAN; WATCH belongs in freshness metadata, got ${state}`);
-  if(!nonEmpty(field.headline))errors.push(`${key}.headline missing`);
-  else if([...field.headline].length>HEADLINE_MAX)errors.push(`${key}.headline length ${[...field.headline].length}>${HEADLINE_MAX}`);
-  if(!nonEmpty(field.summary))errors.push(`${key}.summary missing`);
-  else if([...field.summary].length>SUMMARY_MAX)errors.push(`${key}.summary length ${[...field.summary].length}>${SUMMARY_MAX}`);
-  for(const prop of ['scope','sourceVintage','caveat'])if(!nonEmpty(field[prop]))errors.push(`${key}.${prop} missing`);
-  if(!field.structure||typeof field.structure!=='object'||Array.isArray(field.structure)||Object.keys(field.structure).length===0)errors.push(`${key}.structure missing/empty`);
-  if(CONDITIONAL_FIELDS.has(key)&&!hasConditions(field))errors.push(`${key}.conditions required for conditional semantics`);
-  const checkedOn=dateOf(field);
-  if(!nonEmpty(checkedOn)||!DATE_RE.test(checkedOn))errors.push(`${key}.checkedOn missing/invalid`);
-  const fresh=field.freshness;
-  if(!fresh||typeof fresh!=='object')errors.push(`${key}.freshness missing`);
-  else {
-    for(const prop of ['state','cadence','trigger'])if(!nonEmpty(fresh[prop]))errors.push(`${key}.freshness.${prop} missing`);
-    if(String(fresh.state).toUpperCase()==='WATCH'){
-      if(!DATE_RE.test(String(fresh.checkedOn||checkedOn||'')))errors.push(`${key}.freshness WATCH requires checkedOn`);
-      if(!nonEmpty(fresh.trigger))errors.push(`${key}.freshness WATCH requires event trigger`);
-    }
-  }
-  const sources=sourcesFor(field),min=minimumSources(field);
-  if(sources.length<min)errors.push(`${key}.sources ${sources.length}<required ${min}`);
-  sources.forEach((s,i)=>errors.push(...validateSource(s,`${key}.sources[${i}]`)));
-  if(sourceEvidenceIds(field).length===0)errors.push(`${key}.evidenceId(s) missing`);
-  return {errors,holds,warnings,text:{headline:[...(field.headline||'')].length,summary:[...(field.summary||'')].length},sources:sources.length};
-}
-function validateRecord(record,{cleanList=[]}={}){
-  const errors=[],holds=[],warnings=[],fields={};
-  const iso3=String(record?.iso3||record?.key||'').toUpperCase();
-  if(!ISO3_RE.test(iso3))errors.push('country iso3/key invalid');
-  if(!nonEmpty(record?.country))errors.push('country name missing');
-  else if([...record.country].length>COUNTRY_NAME_MAX)errors.push(`country name length>${COUNTRY_NAME_MAX}`);
-  if(record?.key&&String(record.key).toUpperCase()!==iso3)errors.push('country key must equal iso3');
-  if(record?.schemaVersion!=='country-evidence-v1')errors.push('schemaVersion must be country-evidence-v1');
-  if(!nonEmpty(record?.evidenceBatch))errors.push('evidenceBatch missing');
-  if(!record?.fields||typeof record.fields!=='object')errors.push('fields missing');
-  const missing=CORE8.filter(k=>!record?.fields?.[k]);
-  const extra=Object.keys(record?.fields||{}).filter(k=>!CORE8.includes(k));
-  if(missing.length)errors.push(`CORE8 missing: ${missing.join(',')}`);
-  if(extra.length)errors.push(`unexpected fields: ${extra.join(',')}`);
-  for(const key of CORE8){const out=validateField(key,record?.fields?.[key]);fields[key]=out;errors.push(...out.errors);holds.push(...out.holds);warnings.push(...out.warnings);}
-  const volatility=record?.volatility;
-  if(!volatility||typeof volatility!=='object')errors.push('volatility metadata missing');
-  else {
-    const level=String(volatility.conflictTensions||'').toUpperCase();
-    if(!['NORMAL','HIGH'].includes(level))errors.push('volatility.conflictTensions must be NORMAL|HIGH');
-    if(level==='HIGH'&&volatility.releaseTimeRefreshRequired!==true)errors.push('HIGH conflict volatility requires releaseTimeRefreshRequired=true');
-    if(level==='HIGH'&&!DATE_RE.test(String(volatility.checkedOn||'')))errors.push('HIGH conflict volatility requires checkedOn');
-  }
-  if(cleanList.length&&iso3&&!cleanList.includes(iso3))warnings.push('record not listed CLEAN by manifest');
-  const disposition=holds.length?'HELD':errors.length?'FAILED':'CLEAN';
-  return {iso3,country:record?.country||'',disposition,errors,holds,warnings,fields};
-}
-function normalizeRecords(manifest){
-  if(Array.isArray(manifest?.records))return manifest.records;
-  if(manifest?.records&&typeof manifest.records==='object')return Object.entries(manifest.records).map(([key,r])=>({key,...r}));
-  return [];
-}
-function checksumPayload(manifest){return {schemaVersion:manifest.schemaVersion,manifestVersion:manifest.manifestVersion,checkedOn:manifest.checkedOn,clean:array(manifest.clean),held:array(manifest.held),records:normalizeRecords(manifest)};}
-function validateManifest(manifest,{requireChecksum=true}={}){
-  const manifestErrors=[];
-  if(manifest?.schemaVersion!=='atlas-country-factory-manifest-v1')manifestErrors.push('manifest schemaVersion must be atlas-country-factory-manifest-v1');
-  if(!nonEmpty(manifest?.manifestVersion))manifestErrors.push('manifestVersion missing');
-  if(!DATE_RE.test(String(manifest?.checkedOn||'')))manifestErrors.push('manifest checkedOn missing/invalid');
-  const clean=array(manifest?.clean).map(v=>String(v).toUpperCase()),held=array(manifest?.held).map(v=>String(v).toUpperCase());
-  const dup=[...clean,...held].filter((v,i,a)=>a.indexOf(v)!==i);
-  if(dup.length)manifestErrors.push(`duplicate CLEAN/HELD keys: ${[...new Set(dup)].join(',')}`);
-  const records=normalizeRecords(manifest),seen=new Set(),results=[];
-  for(const record of records){const out=validateRecord(record,{cleanList:clean});if(out.iso3){if(seen.has(out.iso3))out.errors.push('duplicate country key');seen.add(out.iso3);}out.disposition=out.holds.length?'HELD':out.errors.length?'FAILED':'CLEAN';results.push(out);}
-  for(const iso of clean)if(!seen.has(iso))manifestErrors.push(`CLEAN country ${iso} has no record`);
-  const cleanValidated=results.filter(r=>r.disposition==='CLEAN'&&clean.includes(r.iso3)).map(r=>r.iso3);
-  const heldValidated=[...new Set([...held,...results.filter(r=>r.disposition==='HELD').map(r=>r.iso3)])].filter(Boolean);
-  const failed=results.filter(r=>r.disposition==='FAILED').map(r=>r.iso3||'(unknown)');
-  const computed=`sha256:${digest(checksumPayload(manifest))}`;
-  if(requireChecksum){if(!nonEmpty(manifest?.checksum))manifestErrors.push('manifest checksum missing');else if(manifest.checksum!==computed)manifestErrors.push(`manifest checksum mismatch expected ${computed}`);}
-  return {ok:manifestErrors.length===0&&failed.length===0&&cleanValidated.length>=1,manifestErrors,manifestVersion:manifest?.manifestVersion||'',computedChecksum:computed,declaredChecksum:manifest?.checksum||'',clean:cleanValidated,held:heldValidated,failed,results,limits:{headline:HEADLINE_MAX,summary:SUMMARY_MAX},recordCount:records.length};
-}
-
-module.exports={CORE8,HEADLINE_MAX,SUMMARY_MAX,COUNTRY_NAME_MAX,stableStringify,digest,checksumPayload,validateField,validateRecord,validateManifest,normalizeRecords,sourcesFor};
+const ISO2=/^[A-Z]{2}$/; const ISO3=/^[A-Z]{3}$/; const DATE=/^\d{4}-\d{2}-\d{2}$/;
+const AUTHORITY=/^(?:PRIMARY_|OFFICIAL_)/i;
+function nfc(v){if(typeof v==='string')return v.normalize('NFC');if(Array.isArray(v))return v.map(nfc);if(v&&typeof v==='object')return Object.fromEntries(Object.keys(v).sort().map(k=>[k,nfc(v[k])]));return v;}
+function canonicalWithoutChecksum(manifest){const out={};for(const k of Object.keys(manifest).sort())if(k!=='checksum')out[k]=nfc(manifest[k]);return JSON.stringify(out);}
+function checksum(manifest){return crypto.createHash('sha256').update(canonicalWithoutChecksum(manifest),'utf8').digest('hex');}
+function chars(v){return [...String(v??'')].length;}
+function nonempty(v){return typeof v==='string'&&v.trim().length>0;}
+function url(v){try{const u=new URL(v);return u.protocol==='https:'||u.protocol==='http:';}catch{return false;}}
+function validateEvidence(id,evidence){const e=[],w=[];if(!evidence)e.push(`${id}: unresolved evidence_id`);else{if(evidence.evidence_id!==id)e.push(`${id}: evidence_id mismatch`);if(!nonempty(evidence.authority))e.push(`${id}: authority missing`);if(!nonempty(evidence.locator)||!url(evidence.locator))e.push(`${id}: locator invalid`);if(!nonempty(evidence.source_type)||!AUTHORITY.test(evidence.source_type))e.push(`${id}: source_type is not primary/official (${evidence.source_type||'missing'})`);for(const k of ['scope','vintage','checkedOn'])if(!nonempty(evidence[k]))e.push(`${id}: ${k} missing`);if(evidence.checkedOn&&!DATE.test(evidence.checkedOn))e.push(`${id}: checkedOn invalid`);}return {errors:e,warnings:w};}
+function validateCountry(country,manifest){const errors=[],warnings=[],evidenceIds=[];const key=String(country?.country_key||'').toUpperCase();const limits=manifest?.governance?.text_limits||{};const hm=Number(limits.headline_max_chars||110),sm=Number(limits.summary_max_chars||340);
+ if(!ISO3.test(key)||country.iso3!==key)errors.push('country_key/iso3 invalid');if(!ISO2.test(String(country.iso2||'')))errors.push('iso2 invalid');if(!nonempty(country.country_name))errors.push('country_name missing');if(country.batch_status!=='CLEAN')errors.push(`batch_status ${country.batch_status} != CLEAN`);if(country.field_count!==8||country.ready_count!==8||country.hold_count!==0)errors.push('country aggregate field/ready/hold counts invalid');
+ const order=(country.core8||[]).map(f=>f.field_id);if(JSON.stringify(order)!==JSON.stringify(CORE8))errors.push(`CORE8 order mismatch: ${order.join(',')}`);const watches=[];
+ for(const f of country.core8||[]){const p=`${key}.${f.field_id}`;if(f.state!=='READY')errors.push(`${p}: state must be READY`);if(f.product_handoff!=='READY_FOR_PRODUCT')errors.push(`${p}: product_handoff must be READY_FOR_PRODUCT`);if(!nonempty(f.headline))errors.push(`${p}: headline missing`);else if(chars(f.headline)>hm)errors.push(`${p}: headline ${chars(f.headline)}>${hm}`);if(!nonempty(f.summary))errors.push(`${p}: summary missing`);else if(chars(f.summary)>sm)errors.push(`${p}: summary ${chars(f.summary)}>${sm}`);for(const k of ['scope','vintage','checkedOn','conditional_semantics'])if(!nonempty(f[k]))errors.push(`${p}: ${k} missing`);if(f.checkedOn&&!DATE.test(f.checkedOn))errors.push(`${p}: checkedOn invalid`);if(!Array.isArray(f.caveats)||!f.caveats.every(nonempty)||f.caveats.length===0)errors.push(`${p}: caveats missing`);if(!Array.isArray(f.evidence_ids)||f.evidence_ids.length===0)errors.push(`${p}: evidence_ids missing`);else evidenceIds.push(...f.evidence_ids);if(f.multi_source_required===true&&f.evidence_ids.length<2)errors.push(`${p}: multi_source_required requires >=2 sources`);
+   const fresh=f.freshness;if(!fresh||!nonempty(fresh.state)||!nonempty(fresh.cadence)||!nonempty(fresh.next_review_trigger))errors.push(`${p}: freshness incomplete`);else if(fresh.state==='WATCH'){watches.push(f.field_id);if(!fresh.watch||!nonempty(fresh.watch.reason)||!DATE.test(String(fresh.watch.checkedOn||'')))errors.push(`${p}: WATCH requires reason+checkedOn`);}else if(fresh.state!=='CURRENT')warnings.push(`${p}: unfamiliar freshness state ${fresh.state}`);
+   const flags=f.flags||{};if(typeof flags.no_scalar_simplification!=='boolean')errors.push(`${p}: no_scalar_simplification missing`);if(!nonempty(flags.conflict_volatility))errors.push(`${p}: conflict_volatility missing`);if(typeof flags.release_refresh_required!=='boolean')errors.push(`${p}: release_refresh_required missing`);if(f.field_id==='safety_context'&&flags.release_refresh_required!==true)errors.push(`${p}: safety_context requires release refresh`);
+   for(const id of f.evidence_ids||[]){const vr=validateEvidence(id,manifest.evidence_map?.[id]);errors.push(...vr.errors);warnings.push(...vr.warnings);}
+   if(f.text_length){if(Number(f.text_length.headline?.chars)!==chars(f.headline))warnings.push(`${p}: declared headline chars ${f.text_length.headline?.chars} != recomputed ${chars(f.headline)}`);if(Number(f.text_length.summary?.chars)!==chars(f.summary))warnings.push(`${p}: declared summary chars ${f.text_length.summary?.chars} != recomputed ${chars(f.summary)}`);}
+ }
+ const declaredWatches=country.watch_freshness_fields||[];if(JSON.stringify(watches)!==JSON.stringify(declaredWatches))errors.push(`${key}: watch_freshness_fields mismatch`);
+ return {country_key:key,country_name:country.country_name||'',disposition:errors.length?'FAILED':'CLEAN',errors,warnings,evidence_ids:[...new Set(evidenceIds)]};}
+function validateManifest(manifest,{requireChecksum=true,requireBatchSize=true}={}){const manifestErrors=[],warnings=[];if(manifest?.schema!=='atlas.country_factory.manifest.v1')manifestErrors.push('schema must be atlas.country_factory.manifest.v1');for(const k of ['manifest_id','manifest_version','createdOn','status','production_baseline','rollback_baseline'])if(!nonempty(manifest?.[k]))manifestErrors.push(`${k} missing`);if(manifest.createdOn&&!DATE.test(manifest.createdOn))manifestErrors.push('createdOn invalid');const core=manifest?.governance?.core8_field_order;if(JSON.stringify(core)!==JSON.stringify(CORE8))manifestErrors.push('governance CORE8 order mismatch');const clean=(manifest?.batch?.clean||[]).map(String);const held=(manifest?.batch?.held||[]).map(String);if(requireBatchSize&&(clean.length<5||clean.length>10))manifestErrors.push(`CLEAN batch must contain 5-10 countries; got ${clean.length}`);const duplicate=[...clean,...held].filter((v,i,a)=>a.indexOf(v)!==i);if(duplicate.length)manifestErrors.push(`duplicate batch keys: ${[...new Set(duplicate)].join(',')}`);const countries=manifest?.countries||[];const byKey=new Map(countries.map(c=>[c.country_key,c]));for(const k of clean)if(!byKey.has(k))manifestErrors.push(`CLEAN ${k} missing country record`);for(const c of countries)if(!clean.includes(c.country_key))manifestErrors.push(`country record ${c.country_key} not in CLEAN list`);for(const h of manifest?.held_records||[]){if(!held.includes(h.country_key))manifestErrors.push(`held record ${h.country_key} not in held list`);if(h.excluded_from_product_batch!==true)manifestErrors.push(`held record ${h.country_key} not excluded_from_product_batch`);if(clean.includes(h.country_key))manifestErrors.push(`HOLD leakage: ${h.country_key} in CLEAN`);}const results=countries.map(c=>validateCountry(c,manifest));const failed=results.filter(r=>r.disposition==='FAILED').map(r=>r.country_key);for(const r of results)warnings.push(...r.warnings);const computed=checksum(manifest),declared=manifest?.checksum?.canonical_json_without_checksum;if(requireChecksum&&(!nonempty(declared)||computed!==declared))manifestErrors.push(`checksum mismatch declared=${declared||'missing'} computed=${computed}`);if(manifest?.checksum?.algorithm!=='sha256')manifestErrors.push('checksum algorithm must be sha256');const resolved=new Set(results.flatMap(r=>r.evidence_ids));for(const id of resolved)if(!manifest.evidence_map?.[id])manifestErrors.push(`missing evidence ${id}`);const orphan=Object.keys(manifest?.evidence_map||{}).filter(id=>!resolved.has(id));if(orphan.length)warnings.push(`unreferenced evidence_map ids: ${orphan.join(',')}`);return {ok:manifestErrors.length===0&&failed.length===0,manifest_id:manifest?.manifest_id||'',manifest_version:manifest?.manifest_version||'',computedChecksum:computed,declaredChecksum:declared||'',clean:results.filter(r=>r.disposition==='CLEAN').map(r=>r.country_key),held,failed,manifestErrors,warnings,results,limits:{headline:Number(manifest?.governance?.text_limits?.headline_max_chars||110),summary:Number(manifest?.governance?.text_limits?.summary_max_chars||340)},evidenceCount:Object.keys(manifest?.evidence_map||{}).length};}
+function toRuntime(manifest){const report=validateManifest(manifest);if(!report.ok)throw new Error(`manifest invalid: ${JSON.stringify(report)}`);const ev=manifest.evidence_map;const clean=new Set(report.clean);const records=manifest.countries.filter(c=>clean.has(c.country_key)).map(c=>{const fields={};for(const f of c.core8){const sources=f.evidence_ids.map(id=>{const s=ev[id];return {owner:s.authority,locator:s.locator,sourceClass:s.source_type,evidenceId:id,scope:s.scope,vintage:s.vintage,checkedOn:s.checkedOn};});const freshness={state:f.freshness.state,cadence:f.freshness.cadence,trigger:f.freshness.next_review_trigger};if(f.freshness.watch)freshness.watch=f.freshness.watch;fields[f.field_id]={state:f.product_handoff,headline:f.headline,summary:f.summary,jurisdiction:f.scope,scope:f.scope,sourceVintage:f.vintage,verifiedOn:f.checkedOn,checkedOn:f.checkedOn,freshness,caveat:f.caveats.join(' '),conditions:[f.conditional_semantics],structure:{evidenceState:f.state,sourceIds:f.evidence_ids,noScalarSimplification:f.flags.no_scalar_simplification,conditionalSemantics:f.conditional_semantics},sources,evidenceIds:f.evidence_ids,multi_source_required:f.multi_source_required,flags:f.flags};}const sf=fields.safety_context;return {key:c.country_key,iso3:c.iso3,iso2:c.iso2,country:c.country_name,countryNameEn:c.country_name_en,schemaVersion:'country-evidence-v1',evidenceBatch:manifest.manifest_id,factoryManifestVersion:manifest.manifest_version,fields,volatility:{conflictTensions:sf.flags.conflict_volatility,releaseTimeRefreshRequired:sf.flags.release_refresh_required,checkedOn:sf.checkedOn}};});return {schemaVersion:'atlas-country-factory-runtime-v1',manifestId:manifest.manifest_id,manifestVersion:manifest.manifest_version,manifestChecksum:report.computedChecksum,checkedOn:manifest.createdOn,clean:report.clean,held:report.held,records};}
+module.exports={CORE8,canonicalWithoutChecksum,checksum,chars,validateEvidence,validateCountry,validateManifest,toRuntime};
