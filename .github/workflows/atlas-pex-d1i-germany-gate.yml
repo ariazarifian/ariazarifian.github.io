@@ -1,0 +1,51 @@
+name: Atlas PEX-D1I Germany exact-byte gate
+on:
+  push:
+    branches: [ops/atlas-pex-d1i-germany-qa-20260923]
+permissions:
+  contents: read
+jobs:
+  germany-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve QA harness and checkout exact Product candidate
+        run: |
+          cp scripts/pex_d1i_germany_qa.cjs /tmp/qa.cjs
+          git checkout --detach abafbe9ec7777b65f68c39ae6fab024be25abaae
+      - name: Exact lineage scope and preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=1c65748419c702d88255bcafc537ab792d3bde8f
+          C=abafbe9ec7777b65f68c39ae6fab024be25abaae
+          test "$(git rev-parse HEAD)" = "$C"
+          test "$(git merge-base "$BASE" "$C")" = "$BASE"
+          test "$(git diff --name-only "$BASE" "$C" | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-germany.js atlas-exit/index.html | sort)"
+          git diff --exit-code "$BASE" "$C" -- atlas-exit/sitemap.xml atlas-exit/country-evidence-united-kingdom.js atlas-exit/conflict-tensions.js atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html atlas-exit/script.js atlas-exit/atlas-country-evidence.css
+          node --check atlas-exit/country-evidence-germany.js
+          grep -Fq 'country-evidence-germany.js?v=pex-d1i-1' atlas-exit/index.html
+          test "$(grep -o 'country-evidence-germany.js?v=pex-d1i-1' atlas-exit/index.html | wc -l)" -eq 1
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact candidate
+        run: |
+          python3 -m http.server 8000 >/tmp/http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && exit 0; sleep 1; done
+          cat /tmp/http.log; exit 1
+      - name: Full Chromium desktop mobile gate
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+        run: timeout 240s node /tmp/qa.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-d1i-germany-exact-byte-gate
+          path: qa-artifacts
+          if-no-files-found: warn
