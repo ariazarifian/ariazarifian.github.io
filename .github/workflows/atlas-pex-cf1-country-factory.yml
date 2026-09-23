@@ -1,0 +1,40 @@
+name: ATLAS PEX-CF1 Country Factory infrastructure
+on:
+  push:
+    branches: [ops/atlas-pex-cf1-country-factory-20260923]
+permissions:
+  contents: read
+jobs:
+  validate-factory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove exact production ancestry and no served wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROD=99a90012fd25c75d112be4f6dc63ab848d738928
+          test "$(git merge-base "$PROD" HEAD)" = "$PROD"
+          test "$(git rev-parse "$PROD:atlas-exit/index.html")" = "$(git rev-parse HEAD:atlas-exit/index.html)"
+          ! grep -q 'country-factory-runtime' atlas-exit/index.html
+          changed="$(git diff --name-only "$PROD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            .github/workflows/atlas-pex-cf1-country-factory.yml \
+            atlas-exit/country-factory-runtime.js \
+            scripts/atlas_country_factory_generate.cjs \
+            scripts/atlas_country_factory_lib.cjs \
+            scripts/atlas_country_factory_test.cjs \
+            scripts/atlas_country_factory_validate.cjs | sort)"
+          test "$changed" = "$expected"
+      - name: Syntax checks
+        run: |
+          node --check atlas-exit/country-factory-runtime.js
+          node --check scripts/atlas_country_factory_lib.cjs
+          node --check scripts/atlas_country_factory_validate.cjs
+          node --check scripts/atlas_country_factory_generate.cjs
+          node --check scripts/atlas_country_factory_test.cjs
+      - name: Deterministic validator / generator regression suite
+        run: node scripts/atlas_country_factory_test.cjs
