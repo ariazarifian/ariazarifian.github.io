@@ -1,3 +1,4 @@
+# QA-only harness; Product bytes checked out by exact SHA and never mutated.
 name: Atlas PEX-D1H United Kingdom rebased exact-byte QA
 on:
   push:
