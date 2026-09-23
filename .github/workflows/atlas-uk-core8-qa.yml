@@ -39,7 +39,7 @@ jobs:
       - name: Real Chromium desktop + mobile QA
         run: |
           mkdir -p qa-artifacts
-          cat > /tmp/qa.mjs <<'NODE'
+          cat > qa.mjs <<'NODE'
           import { chromium } from 'playwright';
           import fs from 'node:fs';
           const base='http://127.0.0.1:4173';
@@ -72,7 +72,6 @@ jobs:
             await page.waitForSelector('[data-atlas-uk-evidence]');
             const uk=await page.evaluate(()=>{
               const p=document.querySelector('[data-atlas-uk-evidence]'),rows=[...p.querySelectorAll('.atlas-evidence__row')];
-              const inner=[...p.querySelectorAll('.atlas-evidence__source')];
               const src=[...p.querySelectorAll('a.detail-source')].map(a=>a.href);
               const body=document.body.textContent||'';
               const inspector=document.querySelector('#inspector');
@@ -92,12 +91,16 @@ jobs:
             const can=await page.evaluate(()=>{const p=document.querySelector('[data-atlas-canada-evidence]'),rows=[...p.querySelectorAll('.atlas-evidence__row')],inspector=document.querySelector('#inspector');return{rows:rows.length,compact:rows.every(r=>getComputedStyle(r.querySelector(':scope>p')).display==='none'),pageOverflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,inspectorOverflow:inspector.scrollWidth-inspector.clientWidth}});
             assert(can.rows===8&&can.compact&&can.pageOverflow<=1&&can.inspectorOverflow<=1,`${label}: Canada readability regression`);
             await page.locator('[data-save="CAN"]').click();
-            await page.evaluate(()=>window.AtlasExplorer.selectCountry('AUS',false));
-            await page.waitForSelector('[data-atlas-australia-evidence]');
-            assert(await page.locator('[data-atlas-australia-evidence] .atlas-evidence__row').count()===8,`${label}: Australia normalized regression`);
+            await page.evaluate(()=>window.AtlasExplorer.selectCountry('SGP',false));
+            await page.waitForSelector('[data-atlas-singapore-evidence]');
+            assert(await page.locator('[data-atlas-singapore-evidence] .atlas-evidence__row').count()===8,`${label}: Singapore normalized regression`);
             const search=page.locator('#countrySearch');await search.fill('Royaume-Uni');await page.waitForTimeout(100);assert(await page.locator('[data-country="GBR"]').count()===1,`${label}: search regression`);await page.evaluate(()=>window.AtlasExplorer.resetFilters());
+            await page.locator('[data-layer="tax"]').click();
+            await page.locator('[data-region="Europe"]').click().catch(()=>{});
+            await page.evaluate(()=>window.AtlasExplorer.resetFilters());
+            await page.locator('#mapZoomIn').click().catch(()=>{});
+            await page.locator('#mapZoomOut').click().catch(()=>{});
             await page.evaluate(()=>window.AtlasExplorer.selectCountry('GBR',false));
-            await page.locator('[data-save="GBR"]').click().catch(()=>{});
             const saved=await page.evaluate(()=>window.AtlasExplorer.state.saved);
             if(!saved.includes('GBR'))await page.locator('[data-save="GBR"]').click();
             if(!saved.includes('CAN')){await page.evaluate(()=>window.AtlasExplorer.selectCountry('CAN',false));await page.locator('[data-save="CAN"]').click();}
@@ -128,7 +131,7 @@ jobs:
           fs.writeFileSync('qa-artifacts/results.json',JSON.stringify({candidate:'0996da6ab8535cc5e5c9b441545e0a968b1a1cd7',rollback:'d6c2e05ae746f961a8a31655cbe341802c748ac0',results},null,2));
           console.log(JSON.stringify(results,null,2));
           NODE
-          node /tmp/qa.mjs
+          node qa.mjs
       - name: Candidate checksums
         if: always()
         run: |
