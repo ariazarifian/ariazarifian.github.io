@@ -89,7 +89,7 @@ jobs:
             await page.evaluate(()=>window.AtlasExplorer.selectCountry('SGP',false));
             await page.waitForSelector('[data-atlas-singapore-evidence]');
             assert(await page.locator('[data-atlas-singapore-evidence] .atlas-evidence__row').count()===8,`${label}: Singapore normalized regression`);
-            if(viewport.width<600){const mf=page.locator('#mobileFilters'); if(await mf.isVisible()) await mf.click();}
+            if(viewport.width<600){await clickDom(page,'[data-dismiss]'); const mf=page.locator('#mobileFilters'); if(await mf.isVisible()) await mf.click();}
             const search=page.locator('#countrySearch');
             await search.fill('Royaume-Uni'); await page.waitForTimeout(120);
             assert(await page.locator('[data-country="GBR"]').count()===1,`${label}: search regression`);
