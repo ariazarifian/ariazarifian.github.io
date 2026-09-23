@@ -147,6 +147,17 @@ function boot(){
   }
   reconcileLegacyData();
 
+  function reconcileExplorerRuntime(){
+    const explorer=root.AtlasExplorer;
+    const country=explorer?.getCountries?.().find(c=>c.id==='GBR');
+    if(!country)return false;
+    Object.assign(country,{tax:null,taxLabel:'E/W/NI 20–45 % · Écosse distincte',taxYear:'2026–27 · HMRC vérifié 21.09.2026',scope:'PIT Angleterre/Pays de Galles/Irlande du Nord · Écosse séparée',note:'Les principaux taux E/W/NI sont 20 %, 40 % et 45 %, avec Personal Allowance standard de 12 570 £. L’Écosse a son propre barème ; aucun taux UK tout compris n’est affiché.',src:null,taxKind:'current-reference'});
+    const search=root.document.querySelector('#countrySearch');
+    if(search)search.dispatchEvent(new Event('input',{bubbles:true}));
+    return true;
+  }
+  (function scheduleExplorerReconcile(tries=0){if(reconcileExplorerRuntime())return;if(tries<200)root.setTimeout(()=>scheduleExplorerReconcile(tries+1),40);})();
+
   const document=root.document;
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const dateLabel=value=>{const [y,m,d]=String(value).split('-');return y&&m&&d?`${d}.${m}.${y}`:value;};
