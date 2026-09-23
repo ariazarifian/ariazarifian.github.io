@@ -6,7 +6,7 @@ if(!root||!root.document)return;
 let attempts=0;
 const CORE8=['tax_residency','pit','cit_business','consumption_tax','cost_context','residence_visa','healthcare','safety_context'];
 const FISCAL=CORE8.slice(0,4),PRACTICAL=CORE8.slice(4);
-const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const freezeDeep=value=>{if(!value||typeof value!=='object'||Object.isFrozen(value))return value;Object.values(value).forEach(freezeDeep);return Object.freeze(value);};
 const sourcesFor=(core,field)=>core.sourcesFor?core.sourcesFor(field):(Array.isArray(field?.sources)?field.sources:(field?.source?[field.source]:[]));
 const activeCountryId=container=>container?.querySelector('[data-save]')?.getAttribute('data-save')||null;
