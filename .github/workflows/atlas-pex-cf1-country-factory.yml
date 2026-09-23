@@ -1,47 +1,97 @@
-name: ATLAS PEX-CF1 Country Factory infrastructure
+name: ATLAS PEX-CF1 Country Factory B1 exact-byte gate
 on:
   push:
     branches: [ops/atlas-pex-cf1-country-factory-20260923]
 permissions:
   contents: read
 jobs:
-  validate-factory:
+  cf1-b1-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Prove exact production ancestry and no served wiring
+      - name: Prove exact production ancestry and bounded B1 scope
         shell: bash
         run: |
           set -euo pipefail
           PROD=99a90012fd25c75d112be4f6dc63ab848d738928
           test "$(git merge-base "$PROD" HEAD)" = "$PROD"
-          test "$(git rev-parse "$PROD:atlas-exit/index.html")" = "$(git rev-parse HEAD:atlas-exit/index.html)"
-          ! grep -q 'country-factory-runtime' atlas-exit/index.html
-
           changed="$(git diff --name-only "$PROD" HEAD | sort)"
-          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/atlas-pex-cf1-country-factory\.yml|atlas-exit/country-factory-(runtime|dex-cf1-[a-z0-9-]+)\.js|scripts/atlas_country_factory_(generate|lib|test|validate)\.cjs)$' || true)"
-          if [ -n "$unexpected" ]; then
-            printf 'Unexpected file(s) outside Country Factory boundary:\n%s\n' "$unexpected" >&2
-            exit 1
-          fi
-
-          for required in \
+          expected="$(printf '%s\n' \
+            .github/workflows/atlas-pex-cf1-country-factory.yml \
+            atlas-exit/country-factory-dex-cf1-b1-aut.js \
+            atlas-exit/country-factory-dex-cf1-b1-dnk.js \
+            atlas-exit/country-factory-dex-cf1-b1-fin.js \
+            atlas-exit/country-factory-dex-cf1-b1-irl.js \
+            atlas-exit/country-factory-dex-cf1-b1-meta.js \
+            atlas-exit/country-factory-dex-cf1-b1-nor.js \
             atlas-exit/country-factory-runtime.js \
+            atlas-exit/index.html \
+            scripts/atlas_country_factory_browser_qa.cjs \
             scripts/atlas_country_factory_generate.cjs \
             scripts/atlas_country_factory_lib.cjs \
             scripts/atlas_country_factory_test.cjs \
-            scripts/atlas_country_factory_validate.cjs; do
-            test -f "$required"
+            scripts/atlas_country_factory_validate.cjs | sort)"
+          test "$changed" = "$expected"
+          git diff --exit-code "$PROD" HEAD -- \
+            atlas-exit/sitemap.xml \
+            atlas-exit/country-evidence-portugal.js \
+            atlas-exit/country-evidence-germany.js \
+            atlas-exit/country-evidence-united-kingdom.js \
+            atlas-exit/conflict-tensions.js \
+            atlas-exit/offres.html \
+            atlas-exit/parcours-usa.html \
+            atlas-exit/accompagnement.html \
+            atlas-exit/script.js \
+            atlas-exit/atlas-country-evidence.css \
+            atlas-exit/atlas-events.js \
+            atlas-exit/parcours-usa.js
+          ! grep -q 'country-factory-dex-cf1-b1-are' atlas-exit/index.html
+          for wire in \
+            country-factory-dex-cf1-b1-meta.js?v=pex-cf1-b1-1 \
+            country-factory-dex-cf1-b1-aut.js?v=pex-cf1-b1-1 \
+            country-factory-dex-cf1-b1-dnk.js?v=pex-cf1-b1-1 \
+            country-factory-dex-cf1-b1-fin.js?v=pex-cf1-b1-1 \
+            country-factory-dex-cf1-b1-irl.js?v=pex-cf1-b1-1 \
+            country-factory-dex-cf1-b1-nor.js?v=pex-cf1-b1-1 \
+            country-factory-runtime.js?v=pex-cf1-b1-1; do
+            test "$(grep -o "$wire" atlas-exit/index.html | wc -l)" -eq 1
           done
+          grep -Fq 'Content-Security-Policy' atlas-exit/index.html
+          grep -Fq 'description' atlas-exit/index.html
+          grep -Fq 'qualified_project' atlas-exit/atlas-events.js
+          grep -Fq 'QEP_DEDUPE_KEY' atlas-exit/parcours-usa.js
       - name: Syntax checks
         run: |
           node --check atlas-exit/country-factory-runtime.js
+          for f in atlas-exit/country-factory-dex-cf1-b1-*.js; do node --check "$f"; done
           node --check scripts/atlas_country_factory_lib.cjs
           node --check scripts/atlas_country_factory_validate.cjs
           node --check scripts/atlas_country_factory_generate.cjs
           node --check scripts/atlas_country_factory_test.cjs
-      - name: Deterministic validator / generator regression suite
+          node --check scripts/atlas_country_factory_browser_qa.cjs
+      - name: Deterministic manifest validator and generator regression suite
         run: node scripts/atlas_country_factory_test.cjs
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact candidate
+        run: |
+          python3 -m http.server 8000 >/tmp/http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && exit 0; sleep 1; done
+          cat /tmp/http.log; exit 1
+      - name: Exact-byte Chromium desktop and mobile Product gate
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+          ATLAS_PRODUCT_SHA: ${{ github.sha }}
+        run: timeout 300s node scripts/atlas_country_factory_browser_qa.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-cf1-b1-exact-byte-gate
+          path: qa-artifacts
+          if-no-files-found: warn
