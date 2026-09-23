@@ -1,0 +1,32 @@
+name: ATLAS DEX-26C Portugal exact-candidate fidelity QA
+on:
+  push:
+    branches: [ops/atlas-dex-26c-portugal-qa-20260923]
+permissions:
+  contents: read
+jobs:
+  distribution-fidelity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve independent Distribution QA and checkout exact Product candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/dex_26c_portugal_candidate_qa.cjs /tmp/dex-26c.cjs
+          git checkout --detach 99a90012fd25c75d112be4f6dc63ab848d738928
+      - name: Prove exact candidate lineage and release preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=abafbe9ec7777b65f68c39ae6fab024be25abaae
+          C=99a90012fd25c75d112be4f6dc63ab848d738928
+          test "$(git rev-parse HEAD)" = "$C"
+          test "$(git merge-base "$BASE" "$C")" = "$BASE"
+          test "$(git diff --name-only "$BASE" "$C" | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-portugal.js atlas-exit/index.html | sort)"
+          git diff --exit-code "$BASE" "$C" -- atlas-exit/sitemap.xml atlas-exit/country-evidence-germany.js atlas-exit/country-evidence-united-kingdom.js atlas-exit/conflict-tensions.js atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html atlas-exit/atlas-events.js atlas-exit/parcours-usa.js
+      - name: Frozen Portugal CORE8 + DEX-25/26 WATCH semantics
+        run: node /tmp/dex-26c.cjs
