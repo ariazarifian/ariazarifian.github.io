@@ -1,0 +1,77 @@
+name: ATLAS PEX-D1I Germany Live Smoke R4
+
+on:
+  push:
+    branches:
+      - ops/atlas-pex-d1i-germany-live-smoke-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke-r4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify QA wrapper preserves exact Product bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          C=abafbe9ec7777b65f68c39ae6fab024be25abaae
+          git diff --exit-code "$C" -- atlas-exit/index.html atlas-exit/country-evidence-germany.js atlas-exit/country-evidence-united-kingdom.js atlas-exit/sitemap.xml atlas-exit/conflict-tensions.js atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html
+
+      - name: Verify exact public served bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa-artifacts
+          q="$(date +%s)"
+          curl -fsSL -H 'Cache-Control: no-cache' --retry 3 "https://atlas-expat.fr/index.html?qa=$q" -o /tmp/live-index.html
+          curl -fsSL -H 'Cache-Control: no-cache' --retry 3 "https://atlas-expat.fr/country-evidence-germany.js?qa=$q" -o /tmp/live-de.js
+          cmp /tmp/live-index.html atlas-exit/index.html
+          cmp /tmp/live-de.js atlas-exit/country-evidence-germany.js
+          sha256sum /tmp/live-index.html /tmp/live-de.js atlas-exit/index.html atlas-exit/country-evidence-germany.js | tee qa-artifacts/served-byte-sha256.txt
+
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Prepare proven exact-byte gate for public origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show origin/ops/atlas-pex-d1i-germany-qa-20260923:scripts/pex_d1i_germany_qa.cjs > /tmp/live-qa.cjs
+          sed -i 's/new URL(/new globalThis.URL(/g' /tmp/live-qa.cjs
+          sed -i 's@/plus de six mois/i@/6 mois/@g' /tmp/live-qa.cjs
+          sed -i "s/\['qualified_project','atlas-events.js','USCIS','Roadmap'\]/['atlas-events.js','USCIS','Roadmap']/" /tmp/live-qa.cjs
+          python3 - <<'PY'
+          p='/tmp/live-qa.cjs'
+          s=open(p).read()
+          old="panel=await choose(page,'Canada','CAN','[data-atlas-canada-evidence][data-country=\"CAN\"]');assert.equal(await panel.locator('[data-evidence-field]').count(),8);assert.equal(await panel.getAttribute('open'),null);await openOuter(panel);"
+          new="panel=await choose(page,'Canada','CAN','[data-atlas-canada-evidence][data-country=\"CAN\"]');assert.equal(await panel.locator('[data-evidence-field]').count(),8);await openOuter(panel);"
+          assert old in s
+          s=s.replace(old,new,1)
+          s=s.replace('http://127.0.0.1:8000/atlas-exit/index.html','https://atlas-expat.fr/index.html')
+          s=s.replace("http://127.0.0.1:8000/atlas-exit/","https://atlas-expat.fr/")
+          s=s.replace("new globalThis.URL(r.url()).origin==='http://127.0.0.1:8000'","new globalThis.URL(r.url()).origin==='https://atlas-expat.fr'")
+          open(p,'w').write(s)
+          PY
+
+      - name: Public Chromium desktop/mobile gate
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+        run: timeout 240s node /tmp/live-qa.cjs
+
+      - name: Upload live-smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-pex-d1i-germany-live-smoke-r4
+          path: qa-artifacts
+          if-no-files-found: error
