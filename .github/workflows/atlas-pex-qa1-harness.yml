@@ -1,0 +1,70 @@
+name: ATLAS PEX-QA1 Explorer exact-byte harness
+on:
+  push:
+    branches: [ops/atlas-pex-qa1-harness-20260923]
+permissions:
+  contents: read
+jobs:
+  harness-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove tooling-only branch and preserve harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          PRODUCT=abafbe9ec7777b65f68c39ae6fab024be25abaae
+          test "$(git merge-base "$PRODUCT" HEAD)" = "$PRODUCT"
+          test -z "$(git diff --name-only "$PRODUCT" HEAD -- atlas-exit)"
+          changed="$(git diff --name-only "$PRODUCT" HEAD | sort)"
+          expected="$(printf '%s\n' .github/workflows/atlas-pex-qa1-harness.yml scripts/pex_qa1_explorer_harness.cjs | sort)"
+          test "$changed" = "$expected"
+          cp scripts/pex_qa1_explorer_harness.cjs /tmp/pex-qa1.cjs
+          git checkout --detach "$PRODUCT"
+          test "$(git rev-parse HEAD)" = "$PRODUCT"
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve unchanged production bytes
+        run: |
+          python3 -m http.server 8000 >/tmp/http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && exit 0; sleep 1; done
+          cat /tmp/http.log
+          exit 1
+      - name: Positive proof — unchanged production passes desktop and mobile
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+          ATLAS_PRODUCT_SHA: abafbe9ec7777b65f68c39ae6fab024be25abaae
+        run: timeout 300s node /tmp/pex-qa1.cjs
+      - name: Negative proof — semantic mutant must be rejected
+        shell: bash
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+          ATLAS_PRODUCT_SHA: synthetic-mutant-of-abafbe9ec7777b65f68c39ae6fab024be25abaae
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          p='atlas-exit/index.html'
+          s=open(p,encoding='utf-8').read()
+          old='data-layer="conflict"'
+          assert old in s, 'semantic mutation target missing'
+          open(p,'w',encoding='utf-8').write(s.replace(old,'data-layer="conflict-mutant"',1))
+          PY
+          set +e
+          timeout 180s node /tmp/pex-qa1.cjs >/tmp/mutant.log 2>&1
+          rc=$?
+          set -e
+          cat /tmp/mutant.log
+          test "$rc" -ne 0
+          grep -Eq 'conflict layer missing|data-layer.*conflict|conflict' /tmp/mutant.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-qa1-harness-proof
+          path: qa-artifacts
+          if-no-files-found: warn
