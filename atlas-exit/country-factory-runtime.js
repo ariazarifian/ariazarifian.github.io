@@ -14,7 +14,7 @@ const dateLabel=value=>{const [y,m,d]=String(value||'').split('-');return y&&m&&
 const stateLabel=state=>/^READY_WITH_CAVEAT/.test(state)?'Vérifié · limites':/^READY/.test(state)?'Vérifié':'À revalider';
 function boot(){
   const core=root.ATLAS_COUNTRY_EVIDENCE,meta=root.ATLAS_COUNTRY_FACTORY_META,rawRecords=root.ATLAS_COUNTRY_FACTORY_RECORDS;
-  if(!core||!meta||!Array.isArray(rawRecords)){if(attempts++<250)root.setTimeout(boot,40);return;}
+  if(!core||!meta||!Array.isArray(rawRecords)||!root.AtlasExplorer?.ready?.()){if(attempts++<250)root.setTimeout(boot,40);return;}
   if(root.ATLAS_COUNTRY_FACTORY?.manifestChecksum===meta.manifestChecksum)return;
   if(meta.schemaVersion!=='atlas-country-factory-runtime-v1'||!Array.isArray(meta.clean)||!Array.isArray(meta.held)){console.error('ATLAS Country Factory metadata invalid');return;}
   const expected=[...meta.clean].sort();const loaded=rawRecords.map(r=>String(r?.iso3||r?.key||'').toUpperCase()).sort();
