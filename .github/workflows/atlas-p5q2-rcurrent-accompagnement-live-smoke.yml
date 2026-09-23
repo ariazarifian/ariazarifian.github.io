@@ -1,0 +1,180 @@
+name: ATLAS P5Q2 RCURRENT Accompagnement Live Smoke
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5q2-rcurrent-accompagnement-live-smoke-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for exact public served bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa-artifacts
+          matched=0
+          for i in $(seq 1 36); do
+            q="$(date +%s)-$i"
+            ok=1
+            curl -fsSL -H 'Cache-Control: no-cache' --retry 2 "https://atlas-expat.fr/accompagnement.html?qa=$q" -o /tmp/live-accompagnement.html || ok=0
+            curl -fsSL -H 'Cache-Control: no-cache' --retry 2 "https://atlas-expat.fr/atlas-ui-accompagnement.css?qa=$q" -o /tmp/live-accompagnement.css || ok=0
+            if [ "$ok" = 1 ] && cmp -s /tmp/live-accompagnement.html atlas-exit/accompagnement.html && cmp -s /tmp/live-accompagnement.css atlas-exit/atlas-ui-accompagnement.css; then
+              matched=1
+              break
+            fi
+            sleep 10
+          done
+          if [ "$matched" != 1 ]; then
+            echo 'Exact public bytes did not converge in time.'
+            sha256sum /tmp/live-accompagnement.html /tmp/live-accompagnement.css atlas-exit/accompagnement.html atlas-exit/atlas-ui-accompagnement.css || true
+            exit 1
+          fi
+          {
+            echo 'PUBLIC / LOCAL SHA256'
+            sha256sum /tmp/live-accompagnement.html /tmp/live-accompagnement.css atlas-exit/accompagnement.html atlas-exit/atlas-ui-accompagnement.css
+          } | tee qa-artifacts/served-byte-sha256.txt
+
+      - name: Install Chromium
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run public Chromium desktop/mobile smoke
+        shell: bash
+        run: |
+          cat > /tmp/live_qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          ROOT='https://atlas-expat.fr'
+          ACC=f'{ROOT}/accompagnement.html'
+          CANDIDATE='21193f4a42be246d968d7c9e3118ac8229bc3399'
+          ROLLBACK='cd7f2b86dffe4a8e51db0c47cb0ece55442e0c86'
+          out=Path('qa-artifacts'); out.mkdir(exist_ok=True)
+          report={'candidate':CANDIDATE,'rollback':ROLLBACK,'viewports':{},'adjacent':{}}
+
+          def stub_external(page):
+              page.route('https://cloud.umami.is/**',lambda r:r.fulfill(status=200,content_type='application/javascript',body=''))
+              page.route('https://gateway.umami.is/**',lambda r:r.fulfill(status=204,body=''))
+
+          def overflow(page,w):
+              g=page.evaluate("() => ({doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,vw:innerWidth})")
+              assert g['doc'] <= w+1 and g['body'] <= w+1, g
+              return g
+
+          def gate(browser,label,vp):
+              page=browser.new_page(viewport=vp,reduced_motion='no-preference')
+              stub_external(page)
+              page_errors=[]; console_errors=[]; same_origin_fail=[]
+              page.on('pageerror',lambda e: page_errors.append(str(e)))
+              page.on('console',lambda m: console_errors.append(m.text) if m.type=='error' else None)
+              page.on('requestfailed',lambda r: same_origin_fail.append({'url':r.url,'failure':r.failure}) if r.url.startswith(ROOT) else None)
+              r=page.goto(ACC,wait_until='domcontentloaded',timeout=45000)
+              assert r and r.ok,(label,r.status if r else None)
+              page.evaluate('document.fonts.ready'); page.wait_for_timeout(600)
+              initial=overflow(page,vp['width'])
+              assert page.locator('link[rel="canonical"]').get_attribute('href')=='https://atlas-expat.fr/accompagnement.html'
+              csp=page.locator('meta[http-equiv="Content-Security-Policy"]').get_attribute('content')
+              assert csp and 'gateway.umami.is' in csp and "object-src 'none'" in csp and "form-action 'none'" in csp,csp
+              assert page.locator('.atlas-shell__nav a').count()==4
+              assert page.locator('.atlas-shell__nav a[aria-current="page"]').inner_text()=='Accompagnement'
+              assert page.evaluate("document.fonts.check('16px Manrope')")
+              assert page.locator('[data-program]').count()==3
+              assert page.locator('.aq-service__price strong').all_inner_texts()==['990 €','2 500 €','5 000 €']
+              assert page.locator('#thresholdTitle').inner_text()=='L’humain n’est pas systématique.'
+              assert page.locator('#programmeContact').is_disabled()
+              assert page.locator('#programmeContact').get_attribute('href') is None
+              assert page.locator('[data-atlas-event="free_funnel_cta"]').count()==4
+              targets=page.locator('[data-atlas-event="free_funnel_cta"]').evaluate_all("els=>els.map(e=>e.getAttribute('data-atlas-target'))")
+              assert targets.count('roadmap')==2 and targets.count('guide')==2,targets
+              assert page.locator('text=29 €').count()==0
+              cover=page.locator('.aq-brief__baseline img').evaluate('i=>({w:i.naturalWidth,h:i.naturalHeight,complete:i.complete})')
+              assert cover['complete'] and cover['w']>0,cover
+              if label=='mobile':
+                  for i in range(4):
+                      a=page.locator('.atlas-shell__nav a').nth(i)
+                      box=a.bounding_box(); fs=a.evaluate('e=>parseFloat(getComputedStyle(e).fontSize)')
+                      assert box and box['height']>=42 and fs>=13,(i,box,fs)
+              page.screenshot(path=str(out/f'accompagnement-live-{label}-fresh.png'),full_page=True)
+
+              page.locator('body').press('Tab')
+              active=page.evaluate("document.activeElement && document.activeElement.tagName")
+              assert active in ('A','BUTTON'),active
+              focus=page.evaluate("() => {const e=document.activeElement,s=getComputedStyle(e);return {outline:s.outlineStyle,outlineWidth:s.outlineWidth,boxShadow:s.boxShadow}}")
+              assert focus['outline']!='none' or focus['outlineWidth']!='0px' or focus['boxShadow']!='none',focus
+
+              modal=[]
+              for key,title in [('guided','Projet USA'),('coordination','Coordination'),('signature','Signature')]:
+                  btn=page.locator(f'[data-program="{key}"]'); btn.scroll_into_view_if_needed(); btn.click(); page.wait_for_timeout(80)
+                  d=page.locator('#programmeDialog'); assert d.evaluate('x=>x.open')
+                  assert page.locator('#programmeTitle').inner_text()==title
+                  assert page.locator('#programmeContact').is_disabled()
+                  assert page.locator('#programmeContact').get_attribute('href') is None
+                  mo=overflow(page,vp['width'])
+                  page.screenshot(path=str(out/f'accompagnement-live-{label}-{key}-modal.png'),full_page=False)
+                  page.locator('#closeProgramme').click(); assert not d.evaluate('x=>x.open')
+                  btn.click(); page.keyboard.press('Escape'); page.wait_for_timeout(40); assert not d.evaluate('x=>x.open')
+                  modal.append({'key':key,'overflow':mo})
+
+              final=overflow(page,vp['width'])
+              assert not page_errors,page_errors
+              assert not console_errors,console_errors
+              assert not same_origin_fail,same_origin_fail
+
+              reduced=browser.new_page(viewport=vp,reduced_motion='reduce')
+              stub_external(reduced)
+              rr=reduced.goto(ACC,wait_until='domcontentloaded',timeout=45000); assert rr and rr.ok
+              reduced.wait_for_timeout(100)
+              duration=reduced.locator('.aq-service').first.evaluate('el=>getComputedStyle(el).transitionDuration')
+              assert duration in ('0s','0.00001s','0.01ms','1e-05s'),duration
+              reduced.close()
+              data={'status':r.status,'initialOverflow':initial,'finalOverflow':final,'cover':cover,'modalChecks':modal,'freeFunnelTargets':targets,'focus':focus,'reducedMotion':duration,'pageErrors':page_errors,'consoleErrors':console_errors,'sameOriginFailures':same_origin_fail}
+              page.close(); return data
+
+          def adjacent(browser,path,label,w=1440,h=1000):
+              p=browser.new_page(viewport={'width':w,'height':h})
+              stub_external(p)
+              errs=[]; cons=[]; fails=[]
+              p.on('pageerror',lambda e: errs.append(str(e)))
+              p.on('console',lambda m: cons.append(m.text) if m.type=='error' else None)
+              p.on('requestfailed',lambda r: fails.append(r.url) if r.url.startswith(ROOT) else None)
+              r=p.goto(f'{ROOT}/{path}',wait_until='domcontentloaded',timeout=45000)
+              assert r and r.ok,(label,r.status if r else None)
+              p.wait_for_timeout(300)
+              g=overflow(p,w)
+              assert not errs,(label,errs)
+              assert not cons,(label,cons)
+              assert not fails,(label,fails)
+              data={'status':r.status,'overflow':g,'title':p.title()}
+              p.close(); return data
+
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True)
+              for label,vp in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+                  report['viewports'][label]=gate(browser,label,vp)
+              report['adjacent']['guide']=adjacent(browser,'offres.html','guide')
+              report['adjacent']['roadmap']=adjacent(browser,'parcours-usa.html','roadmap')
+              report['adjacent']['explorer']=adjacent(browser,'index.html','explorer')
+              browser.close()
+          report['status']='PASS'
+          (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/live_qa.py
+
+      - name: Upload public live-smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5q2-rcurrent-accompagnement-live-smoke
+          path: qa-artifacts
+          if-no-files-found: error
