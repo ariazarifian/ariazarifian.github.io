@@ -8,7 +8,7 @@ permissions:
 jobs:
   qa:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
@@ -26,8 +26,12 @@ jobs:
           assert needle in s
           s=s.replace(needle,repl,1)
           s=s.replace('/Modéré/','/modéré/i')
+          s=s.replace("await page.screenshot({path:`qa-artifacts/pex-d1h-rcurrent-${vp.name}.png`,fullPage:true});","console.log('STAGE screenshot '+vp.name);await page.screenshot({path:`qa-artifacts/pex-d1h-rcurrent-${vp.name}.png`,fullPage:false,animations:'disabled',timeout:8000});")
+          s=s.replace("await ctx.close();}","console.log('STAGE viewport-pass '+vp.name);await Promise.race([ctx.close(),new Promise((_,rej)=>setTimeout(()=>rej(new Error('context close timeout')),5000))]);}")
+          s=s.replace("await browser.close();fs.writeFileSync","await Promise.race([browser.close(),new Promise((_,rej)=>setTimeout(()=>rej(new Error('browser close timeout')),5000))]);fs.writeFileSync")
           open(p,'w',encoding='utf-8').write(s)
           PY
+          node --check /tmp/pex_d1h_qa4.cjs
           git checkout --detach 3a3ac7ff01a75730d3d2aa80a621361cafc78d75
       - name: Syntax, lineage and bounded Product scope
         run: |
