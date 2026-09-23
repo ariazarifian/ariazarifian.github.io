@@ -1,0 +1,131 @@
+name: ATLAS P5Q0 RCURRENT Live Smoke
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5q0-rcurrent-live-smoke-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 87ea8fa9a340703e79a0fcfc43b1a3dacd0d27d7
+          fetch-depth: 0
+
+      - name: Verify public served bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE=87ea8fa9a340703e79a0fcfc43b1a3dacd0d27d7
+          test "$(git rev-parse HEAD)" = "$CANDIDATE"
+          BUSTER="p5q0-live-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          curl --retry 8 --retry-all-errors --retry-delay 2 -fsSL -H 'Cache-Control: no-cache' "https://atlas-expat.fr/offres.html?qa=${BUSTER}" -o /tmp/live-offres.html
+          curl --retry 8 --retry-all-errors --retry-delay 2 -fsSL -H 'Cache-Control: no-cache' "https://atlas-expat.fr/atlas-ui-guide.css?qa=${BUSTER}" -o /tmp/live-guide.css
+          test "$(git hash-object /tmp/live-offres.html)" = "5cb7ca83f74f756644b8d14e1d5d48ad4be0c616"
+          test "$(git hash-object /tmp/live-guide.css)" = "66faa5ae4a6f620e94089d8eb5ea2d2fb783489b"
+          cmp -s /tmp/live-offres.html atlas-exit/offres.html
+          cmp -s /tmp/live-guide.css atlas-exit/atlas-ui-guide.css
+
+      - name: Install Playwright Chromium
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Public desktop/mobile browser smoke
+        shell: bash
+        run: |
+          cat > /tmp/live.py <<'PY'
+          import json,time
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          ROOT='https://atlas-expat.fr'
+          URL=f'{ROOT}/offres.html?qa=p5q0-live-{int(time.time())}'
+          OUT=Path('live-artifacts'); OUT.mkdir(exist_ok=True)
+          report={'candidate':'87ea8fa9a340703e79a0fcfc43b1a3dacd0d27d7','rollback':'8142a288df76d5d69117dbb0ad31cfae7110486f','viewports':{},'adjacent':{}}
+
+          def overflow(page,w):
+              g=page.evaluate("""() => ({doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,vw:innerWidth})""")
+              assert g['doc']<=w+1 and g['body']<=w+1,g
+              return g
+
+          def guide(browser,label,vp):
+              p=browser.new_page(viewport=vp,reduced_motion='no-preference')
+              errors=[]; console=[]; failed=[]
+              p.on('pageerror',lambda e: errors.append(str(e)))
+              p.on('console',lambda m: console.append(m.text) if m.type=='error' else None)
+              p.on('requestfailed',lambda r: failed.append(r.url) if r.url.startswith(ROOT) else None)
+              r=p.goto(URL,wait_until='domcontentloaded',timeout=45000)
+              assert r and r.ok,(label,r.status if r else None)
+              p.evaluate('document.fonts.ready'); p.wait_for_timeout(900)
+              g=overflow(p,vp['width'])
+              assert p.locator('.atlas-shell__nav a').count()==4
+              assert p.locator('h1#productTitle').count()==1
+              assert p.locator('.gq-cover').count()==1
+              cov=p.locator('.gq-cover').evaluate("el=>({ok:el.complete&&el.naturalWidth>0,w:el.naturalWidth,h:el.naturalHeight})")
+              assert cov['ok'],cov
+              assert p.locator('.gq-proof-facts strong').count()==3
+              assert p.locator('.gq-route-list li').count()==8
+              downloads=p.locator('a[data-atlas-event="guide_download_click"]'); assert downloads.count()==2
+              roadmaps=p.locator('a[data-atlas-event="free_funnel_cta"][data-atlas-target="roadmap"]'); assert roadmaps.count()==2
+              assert all(downloads.nth(i).get_attribute('href')=='https://atlas-exit-delivery.onrender.com/free-guide/usa' for i in range(2))
+              assert all(roadmaps.nth(i).get_attribute('href')=='parcours-usa.html' for i in range(2))
+              details=p.locator('.gq-disclosures details'); assert details.count()==3
+              details.nth(1).locator('summary').click(); details.nth(2).locator('summary').click(); overflow(p,vp['width'])
+              p.screenshot(path=str(OUT/f'guide-live-{label}.png'),full_page=True)
+              p.locator('body').focus(); focused=None
+              for _ in range(8):
+                  p.keyboard.press('Tab')
+                  x=p.evaluate("""() => {const e=document.activeElement;if(!e)return null;const s=getComputedStyle(e),b=e.getBoundingClientRect();return {tag:e.tagName,outline:s.outlineStyle,w:b.width,h:b.height,text:(e.innerText||'').trim()}}""")
+                  if x and x['tag']=='A': focused=x; break
+              assert focused and focused['outline']!='none' and focused['w']>0 and focused['h']>0,focused
+              reduced=browser.new_page(viewport=vp,reduced_motion='reduce')
+              reduced.goto(URL,wait_until='domcontentloaded',timeout=45000); reduced.wait_for_timeout(300)
+              d=reduced.locator('.gq-cover').evaluate('el=>getComputedStyle(el).transitionDuration')
+              assert d in ('0s','0.00001s','0.01ms','1e-05s'),d
+              reduced.close()
+              assert not errors,errors
+              assert not console,console
+              assert not failed,failed
+              out={'status':r.status,'overflow':g,'cover':cov,'focus':focused,'reducedMotion':d,'consoleErrors':console,'sameOriginFailures':failed}
+              p.close(); return out
+
+          def adjacent(browser,path,selector):
+              p=browser.new_page(viewport={'width':1440,'height':1000})
+              errors=[]; failed=[]
+              p.on('pageerror',lambda e: errors.append(str(e)))
+              p.on('requestfailed',lambda r: failed.append(r.url) if r.url.startswith(ROOT) else None)
+              r=p.goto(f'{ROOT}/{path}?qa=p5q0-adj-{int(time.time())}',wait_until='domcontentloaded',timeout=45000)
+              assert r and r.ok,(path,r.status if r else None)
+              p.wait_for_timeout(700)
+              g=overflow(p,1440)
+              assert p.locator(selector).count()>=1,(path,selector)
+              assert not errors,errors
+              assert not failed,failed
+              p.close(); return {'status':r.status,'overflow':g,'errors':errors,'sameOriginFailures':failed}
+
+          with sync_playwright() as pw:
+              b=pw.chromium.launch(headless=True)
+              for label,vp in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]: report['viewports'][label]=guide(b,label,vp)
+              report['adjacent']['explorer']=adjacent(b,'index.html','#worldMap')
+              report['adjacent']['roadmap']=adjacent(b,'parcours-usa.html','#routeForm')
+              report['adjacent']['accompagnement']=adjacent(b,'accompagnement.html','main')
+              b.close()
+          OUT.joinpath('report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/live.py
+
+      - name: Upload public live evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5q0-rcurrent-live-smoke
+          path: live-artifacts
+          if-no-files-found: error
