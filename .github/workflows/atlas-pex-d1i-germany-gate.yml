@@ -17,6 +17,14 @@ jobs:
           cp scripts/pex_d1i_germany_qa.cjs /tmp/qa.cjs
           sed -i 's/new URL(/new globalThis.URL(/g' /tmp/qa.cjs
           sed -i 's@/plus de six mois/i@/6 mois/@g' /tmp/qa.cjs
+          python3 - <<'PY'
+          p='/tmp/qa.cjs'
+          s=open(p).read()
+          old="panel=await choose(page,'Canada','CAN','[data-atlas-canada-evidence][data-country=\"CAN\"]');assert.equal(await panel.locator('[data-evidence-field]').count(),8);assert.equal(await panel.getAttribute('open'),null);await openOuter(panel);"
+          new="panel=await choose(page,'Canada','CAN','[data-atlas-canada-evidence][data-country=\"CAN\"]');assert.equal(await panel.locator('[data-evidence-field]').count(),8);await openOuter(panel);"
+          assert old in s
+          open(p,'w').write(s.replace(old,new,1))
+          PY
           git checkout --detach abafbe9ec7777b65f68c39ae6fab024be25abaae
       - name: Exact lineage scope and preservation
         shell: bash
