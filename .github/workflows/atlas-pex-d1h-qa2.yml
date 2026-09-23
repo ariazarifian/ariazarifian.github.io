@@ -1,0 +1,54 @@
+name: Atlas PEX-D1H United Kingdom evidence QA2
+on:
+  push:
+    branches: [ops/atlas-pex-d1h-uk-qa2-20260923]
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve QA harness and checkout exact Product candidate
+        run: |
+          cp scripts/pex_d1h_qa.cjs /tmp/pex_d1h_qa.cjs
+          git checkout --detach e44ae188cbe142a4a6a3aced37704eda9e59569e
+      - name: Syntax and bounded Product scope
+        run: |
+          node --check atlas-exit/country-evidence-united-kingdom.js
+          node --check atlas-exit/country-evidence.js
+          node --check atlas-exit/fiscal-finalize.js
+          test "$(git diff --name-only 93c6cc1b1f54262ad23120d6067765dbaca3bbd8 e44ae188cbe142a4a6a3aced37704eda9e59569e -- atlas-exit | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-united-kingdom.js atlas-exit/index.html | sort)"
+          grep -q 'country-evidence-united-kingdom.js?v=pex-d1h-1' atlas-exit/index.html
+          grep -q "evidenceBatch:'DEX-20'" atlas-exit/country-evidence-united-kingdom.js
+          test "$(grep -o "state:'READY_FOR_PRODUCT'" atlas-exit/country-evidence-united-kingdom.js | wc -l | tr -d ' ')" = "8"
+          grep -q 'universal183DayRule:false' atlas-exit/country-evidence-united-kingdom.js
+          grep -q 'scotlandSeparateSchedule:true' atlas-exit/country-evidence-united-kingdom.js
+          grep -q 'etaWorkPermission:false' atlas-exit/country-evidence-united-kingdom.js
+          grep -q 'automaticNhsFromFrenchNationality:false' atlas-exit/country-evidence-united-kingdom.js
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact Product candidate
+        run: |
+          python3 -m http.server 8000 >/tmp/pex-d1h-http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
+      - name: Real Chromium desktop/mobile + evidence/regression contract
+        run: |
+          mkdir -p qa-artifacts
+          NODE_PATH="$PWD/node_modules" node /tmp/pex_d1h_qa.cjs
+      - name: Immutable shared renderer and readability contract
+        run: |
+          git diff --exit-code 93c6cc1b1f54262ad23120d6067765dbaca3bbd8 e44ae188cbe142a4a6a3aced37704eda9e59569e -- atlas-exit/country-evidence.js atlas-exit/atlas-country-evidence.css atlas-exit/script.js atlas-exit/conflict-tensions.js atlas-exit/conflict-tensions.css atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-switzerland.js atlas-exit/country-evidence-singapore.js atlas-exit/country-evidence-canada.js
+          grep -q '.atlas-evidence__row>p{display:none}' atlas-exit/atlas-country-evidence.css
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-d1h-united-kingdom-evidence-qa2
+          path: qa-artifacts
+          if-no-files-found: warn
