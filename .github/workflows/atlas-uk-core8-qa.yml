@@ -1,0 +1,142 @@
+name: ATLAS UK CORE8 exact-candidate QA
+on:
+  push:
+    branches:
+      - qa/atlas-uk-core8-0996da6
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 0996da6ab8535cc5e5c9b441545e0a968b1a1cd7
+          fetch-depth: 0
+      - name: Exact candidate + bounded diff
+        run: |
+          test "$(git rev-parse HEAD)" = "0996da6ab8535cc5e5c9b441545e0a968b1a1cd7"
+          files="$(git diff --name-only d6c2e05ae746f961a8a31655cbe341802c748ac0..HEAD)"
+          printf '%s\n' "$files"
+          test "$files" = $'atlas-exit/country-evidence-united-kingdom.js\natlas-exit/index.html'
+          grep -q 'GBR-01\|tax_residency' atlas-exit/country-evidence-united-kingdom.js
+          grep -q 'https://www.gov.uk/skilled-worker-visa' atlas-exit/country-evidence-united-kingdom.js
+          grep -q 'country-evidence-united-kingdom.js?v=pex-d1h-1' atlas-exit/index.html
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium QA runtime
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+      - name: Serve candidate
+        run: |
+          python3 -m http.server 4173 -d atlas-exit > /tmp/atlas-http.log 2>&1 &
+          echo $! > /tmp/atlas-http.pid
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4173/index.html >/dev/null && exit 0; sleep 1; done
+          cat /tmp/atlas-http.log
+          exit 1
+      - name: Real Chromium desktop + mobile QA
+        run: |
+          mkdir -p qa-artifacts
+          cat > /tmp/qa.mjs <<'NODE'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          const base='http://127.0.0.1:4173';
+          const results=[];
+          const assert=(ok,msg)=>{if(!ok)throw new Error(msg)};
+          async function run(viewport,label){
+            const browser=await chromium.launch({headless:true});
+            const context=await browser.newContext({viewportSize:viewport,reducedMotion:'reduce'});
+            const page=await context.newPage();
+            const pageErrors=[],consoleErrors=[],sameOriginFails=[];
+            page.on('pageerror',e=>pageErrors.push(String(e)));
+            page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text())});
+            page.on('requestfailed',r=>{if(r.url().startsWith(base))sameOriginFails.push(`${r.url()} :: ${r.failure()?.errorText||''}`)});
+            const res=await page.goto(`${base}/index.html`,{waitUntil:'domcontentloaded'});
+            assert(res?.ok(),`${label}: index HTTP ${res?.status()}`);
+            await page.waitForFunction(()=>window.AtlasExplorer?.ready?.()===true,{timeout:15000});
+            await page.waitForFunction(()=>window.ATLAS_COUNTRY_EVIDENCE_CANADA?.country,{timeout:15000});
+            await page.waitForFunction(()=>window.ATLAS_COUNTRY_EVIDENCE_UNITED_KINGDOM?.country,{timeout:15000});
+            const contract=await page.evaluate(()=>{
+              const core=window.ATLAS_COUNTRY_EVIDENCE,u=window.ATLAS_COUNTRY_EVIDENCE_UNITED_KINGDOM;
+              const fields=Object.entries(u.country.fields);
+              return {ok:u.validation.ok,keys:fields.map(([k])=>k),states:fields.map(([,v])=>v.state),sources:fields.reduce((n,[,v])=>n+core.sourcesFor(v).length,0),rv:core.sourcesFor(u.country.fields.residence_visa).map(s=>s.locator),health:core.sourcesFor(u.country.fields.healthcare).map(s=>s.locator),multi:[u.country.fields.residence_visa.multiSourceRequired,u.country.fields.healthcare.multiSourceRequired]};
+            });
+            assert(contract.ok,`${label}: UK contract invalid`);
+            assert(JSON.stringify(contract.keys)===JSON.stringify(['tax_residency','pit','cit_business','consumption_tax','cost_context','residence_visa','healthcare','safety_context']),`${label}: CORE8 IDs drift`);
+            assert(contract.states.every(x=>x==='READY_FOR_PRODUCT'),`${label}: handoff state drift`);
+            assert(contract.sources===11,`${label}: expected 11 locators, got ${contract.sources}`);
+            assert(contract.rv.length===3&&contract.health.length===2&&contract.multi.every(Boolean),`${label}: multi-source preservation failed`);
+            await page.evaluate(()=>window.AtlasExplorer.selectCountry('GBR',false));
+            await page.waitForSelector('[data-atlas-uk-evidence]');
+            const uk=await page.evaluate(()=>{
+              const p=document.querySelector('[data-atlas-uk-evidence]'),rows=[...p.querySelectorAll('.atlas-evidence__row')];
+              const inner=[...p.querySelectorAll('.atlas-evidence__source')];
+              const src=[...p.querySelectorAll('a.detail-source')].map(a=>a.href);
+              const body=document.body.textContent||'';
+              const inspector=document.querySelector('#inspector');
+              return {rows:rows.length,src:src.length,open:p.open,hiddenSummaries:rows.every(r=>getComputedStyle(r.querySelector(':scope>p')).display==='none'),pageOverflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,inspectorOverflow:inspector.scrollWidth-inspector.clientWidth,discover:/Découvrir/.test(body),stability:/Stabilité politique/.test(body),conflict:/Conflit & tensions/.test(body),headline:rows.map(r=>r.querySelector('strong')?.textContent||'')};
+            });
+            assert(uk.rows===8&&uk.src===11,`${label}: UK DOM fidelity rows=${uk.rows}, sources=${uk.src}`);
+            assert(uk.hiddenSummaries,`${label}: UK default is verbose`);
+            assert(uk.pageOverflow<=1&&uk.inspectorOverflow<=1,`${label}: UK overflow page=${uk.pageOverflow} inspector=${uk.inspectorOverflow}`);
+            assert(!uk.discover&&uk.stability&&uk.conflict,`${label}: accepted Explorer labels regressed`);
+            await page.locator('[data-atlas-uk-evidence] .atlas-evidence__source').first().click();
+            assert(await page.locator('[data-atlas-uk-evidence] .atlas-evidence__row').first().locator(':scope>p').isVisible(),`${label}: progressive disclosure summary inaccessible`);
+            assert((await page.locator('[data-atlas-uk-evidence] a.detail-source').first().getAttribute('href'))?.startsWith('https://'),`${label}: source disclosure inaccessible`);
+            await page.screenshot({path:`qa-artifacts/${label}-uk.png`,fullPage:true});
+            await page.locator('[data-save="GBR"]').click();
+            await page.evaluate(()=>window.AtlasExplorer.selectCountry('CAN',false));
+            await page.waitForSelector('[data-atlas-canada-evidence]');
+            const can=await page.evaluate(()=>{const p=document.querySelector('[data-atlas-canada-evidence]'),rows=[...p.querySelectorAll('.atlas-evidence__row')],inspector=document.querySelector('#inspector');return{rows:rows.length,compact:rows.every(r=>getComputedStyle(r.querySelector(':scope>p')).display==='none'),pageOverflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,inspectorOverflow:inspector.scrollWidth-inspector.clientWidth}});
+            assert(can.rows===8&&can.compact&&can.pageOverflow<=1&&can.inspectorOverflow<=1,`${label}: Canada readability regression`);
+            await page.locator('[data-save="CAN"]').click();
+            await page.evaluate(()=>window.AtlasExplorer.selectCountry('AUS',false));
+            await page.waitForSelector('[data-atlas-australia-evidence]');
+            assert(await page.locator('[data-atlas-australia-evidence] .atlas-evidence__row').count()===8,`${label}: Australia normalized regression`);
+            const search=page.locator('#countrySearch');await search.fill('Royaume-Uni');await page.waitForTimeout(100);assert(await page.locator('[data-country="GBR"]').count()===1,`${label}: search regression`);await page.evaluate(()=>window.AtlasExplorer.resetFilters());
+            await page.evaluate(()=>window.AtlasExplorer.selectCountry('GBR',false));
+            await page.locator('[data-save="GBR"]').click().catch(()=>{});
+            const saved=await page.evaluate(()=>window.AtlasExplorer.state.saved);
+            if(!saved.includes('GBR'))await page.locator('[data-save="GBR"]').click();
+            if(!saved.includes('CAN')){await page.evaluate(()=>window.AtlasExplorer.selectCountry('CAN',false));await page.locator('[data-save="CAN"]').click();}
+            await page.locator('#openCompare').click();
+            await page.waitForSelector('#compareDialog[open]');
+            const cmp=await page.locator('#compareTable').innerText();
+            assert(/Royaume-Uni/.test(cmp)&&/Écosse/.test(cmp)&&/19 % \/ 25 %/.test(cmp),`${label}: UK comparator normalized content missing`);
+            await page.locator('#compareDialog [data-close]').click();
+            await page.locator('[data-layer="conflict"]').click();
+            await page.evaluate(()=>window.AtlasExplorer.selectCountry('JPN',false));
+            await page.waitForSelector('[data-conflict-panel]');
+            assert(/17:54|590 km/.test(await page.locator('[data-conflict-panel]').innerText()),`${label}: Japan conflict freshness regression`);
+            await page.evaluate(()=>window.AtlasExplorer.selectCountry('THA',false));
+            await page.waitForSelector('[data-conflict-panel]');
+            assert(/Cambodge|Pattani|Yala/.test(await page.locator('[data-conflict-panel]').innerText()),`${label}: Thailand conflict regression`);
+            await page.locator('[data-layer="tax"]').click();
+            const adjacent={};
+            for(const path of ['offres.html','parcours-usa.html','accompagnement.html']){const r=await page.request.get(`${base}/${path}`);adjacent[path]=r.status();assert(r.ok(),`${label}: adjacent ${path} HTTP ${r.status()}`);if(path==='offres.html'){const t=await r.text();assert(/V15/.test(t)&&/guide_download_click/.test(t),`${label}: Guide V15/QEP telemetry regression`);}}
+            assert(pageErrors.length===0,`${label}: page errors ${pageErrors.join(' | ')}`);
+            assert(sameOriginFails.length===0,`${label}: same-origin failures ${sameOriginFails.join(' | ')}`);
+            const productConsole=consoleErrors.filter(x=>!/umami|ERR_BLOCKED_BY_CLIENT|Failed to load resource/i.test(x));
+            assert(productConsole.length===0,`${label}: console errors ${productConsole.join(' | ')}`);
+            results.push({label,viewport,contract,uk,can,adjacent,pageErrors,consoleErrors,sameOriginFails});
+            await browser.close();
+          }
+          await run({width:1440,height:1000},'desktop-1440x1000');
+          await run({width:390,height:844},'mobile-390x844');
+          fs.writeFileSync('qa-artifacts/results.json',JSON.stringify({candidate:'0996da6ab8535cc5e5c9b441545e0a968b1a1cd7',rollback:'d6c2e05ae746f961a8a31655cbe341802c748ac0',results},null,2));
+          console.log(JSON.stringify(results,null,2));
+          NODE
+          node /tmp/qa.mjs
+      - name: Candidate checksums
+        if: always()
+        run: |
+          sha256sum atlas-exit/country-evidence-united-kingdom.js atlas-exit/index.html | tee qa-artifacts/sha256.txt
+          git diff --stat d6c2e05ae746f961a8a31655cbe341802c748ac0..0996da6ab8535cc5e5c9b441545e0a968b1a1cd7 | tee qa-artifacts/diff-stat.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-uk-core8-qa-0996da6
+          path: qa-artifacts
+          if-no-files-found: warn
