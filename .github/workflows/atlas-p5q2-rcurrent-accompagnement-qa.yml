@@ -1,0 +1,198 @@
+name: ATLAS P5Q2 RCURRENT Accompagnement Exact-Byte QA
+
+on:
+  push:
+    branches:
+      - ops/atlas-p5q2-rcurrent-accompagnement-qa-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  accompagnement-exact-byte-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact bounded Product candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=cd7f2b86dffe4a8e51db0c47cb0ece55442e0c86
+          CANDIDATE=21193f4a42be246d968d7c9e3118ac8229bc3399
+          test "$(git rev-parse "$CANDIDATE^")" = "$BASE"
+          test "$(git hash-object atlas-exit/accompagnement.html)" = "0f3c16cac6335fa2ef7d24094bf43190637c9554"
+          test "$(git hash-object atlas-exit/atlas-ui-accompagnement.css)" = "91b8bbce65d70eca4e509d11498e6f0d7a69ec12"
+          test "$(git hash-object atlas-exit/programmes.js)" = "9e228ee55eb967eb890d6c4efa10ec7918a5553d"
+          git diff --name-only "$BASE" "$CANDIDATE" | sort > /tmp/changed.txt
+          printf '%s\n' atlas-exit/accompagnement.html atlas-exit/atlas-ui-accompagnement.css | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+          grep -q '<link rel="canonical" href="https://atlas-expat.fr/accompagnement.html">' atlas-exit/accompagnement.html
+          grep -q 'atlas-ui-accompagnement.css?v=p5q2-1' atlas-exit/accompagnement.html
+          grep -q 'atlas-events.js?v=1' atlas-exit/accompagnement.html
+          grep -q 'https://gateway.umami.is' atlas-exit/accompagnement.html
+          test "$(grep -o 'data-program=' atlas-exit/accompagnement.html | wc -l)" -eq 3
+          test "$(grep -o 'data-atlas-event=\"free_funnel_cta\"' atlas-exit/accompagnement.html | wc -l)" -eq 4
+          ! grep -q 'data-program="solo"' atlas-exit/accompagnement.html
+          ! grep -E -q '29 ?€|29€' atlas-exit/accompagnement.html
+          ! grep -q 'programmeContact" href=' atlas-exit/accompagnement.html
+          grep -q 'id="programmeContact" type="button" disabled>Ouverture à venir<' atlas-exit/accompagnement.html
+          grep -q 'Guide V15' atlas-exit/accompagnement.html
+          grep -q 'roadmap' atlas-exit/accompagnement.html
+          grep -q '0 €' atlas-exit/accompagnement.html
+          ! grep -q '<style' atlas-exit/accompagnement.html
+          ! grep -q ' style=' atlas-exit/accompagnement.html
+
+      - name: Install Chromium
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run exact-byte Chromium gate and capture screenshots
+        shell: bash
+        run: |
+          mkdir -p qa-artifacts
+          python -m http.server 8765 --directory atlas-exit >/tmp/atlas-accompagnement-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          cat > /tmp/qa.py <<'PY'
+          import json
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          BASE='cd7f2b86dffe4a8e51db0c47cb0ece55442e0c86'
+          CANDIDATE='21193f4a42be246d968d7c9e3118ac8229bc3399'
+          ROOT='http://127.0.0.1:8765'
+          ACC=f'{ROOT}/accompagnement.html'
+          out=Path('qa-artifacts'); out.mkdir(exist_ok=True)
+          report={'candidate':CANDIDATE,'base':BASE,'rollback':BASE,'html_blob':'0f3c16cac6335fa2ef7d24094bf43190637c9554','css_blob':'91b8bbce65d70eca4e509d11498e6f0d7a69ec12','viewports':{},'adjacent':{}}
+
+          def stub_external(page):
+              page.route('https://cloud.umami.is/**',lambda r:r.fulfill(status=200,content_type='application/javascript',body=''))
+              page.route('https://gateway.umami.is/**',lambda r:r.fulfill(status=204,body=''))
+
+          def overflow(page,w):
+              g=page.evaluate("""() => ({doc:document.documentElement.scrollWidth,body:document.body.scrollWidth,vw:innerWidth})""")
+              assert g['doc'] <= w+1 and g['body'] <= w+1, g
+              return g
+
+          def gate(browser,label,vp):
+              page=browser.new_page(viewport=vp,reduced_motion='no-preference')
+              stub_external(page)
+              page_errors=[]; console_errors=[]; same_origin_fail=[]
+              page.on('pageerror',lambda e: page_errors.append(str(e)))
+              page.on('console',lambda m: console_errors.append(m.text) if m.type=='error' else None)
+              page.on('requestfailed',lambda r: same_origin_fail.append({'url':r.url,'failure':r.failure}) if r.url.startswith(ROOT) else None)
+              r=page.goto(ACC,wait_until='domcontentloaded',timeout=45000)
+              assert r and r.ok,(label,r.status if r else None)
+              page.evaluate('document.fonts.ready'); page.wait_for_timeout(500)
+              initial_overflow=overflow(page,vp['width'])
+
+              assert page.locator('link[rel="canonical"]').get_attribute('href')=='https://atlas-expat.fr/accompagnement.html'
+              csp=page.locator('meta[http-equiv="Content-Security-Policy"]').get_attribute('content')
+              assert 'gateway.umami.is' in csp and "object-src 'none'" in csp and "form-action 'none'" in csp,csp
+              assert page.locator('.atlas-shell__nav a').count()==4
+              assert page.locator('.atlas-shell__nav a[aria-current="page"]').inner_text()=='Accompagnement'
+              assert page.evaluate("document.fonts.check('16px Manrope')")
+              resources=page.evaluate("performance.getEntriesByType('resource').map(e=>e.name)")
+              assert any('atlas-ui-accompagnement.css' in x for x in resources),resources
+              assert any('Manrope-Variable.ttf' in x for x in resources),resources
+              assert not any('fonts.googleapis.com' in x or 'fonts.gstatic.com' in x for x in resources),resources
+              assert page.locator('[data-program]').count()==3
+              assert page.locator('.aq-service__price strong').all_inner_texts()==['990 €','2 500 €','5 000 €']
+              assert page.locator('#thresholdTitle').inner_text()=='L’humain n’est pas systématique.'
+              assert page.locator('#programmeContact').is_disabled()
+              assert page.locator('#programmeContact').get_attribute('href') is None
+              assert page.locator('[data-atlas-event="free_funnel_cta"]').count()==4
+              targets=page.locator('[data-atlas-event="free_funnel_cta"]').evaluate_all("els=>els.map(e=>e.getAttribute('data-atlas-target'))")
+              assert targets.count('roadmap')==2 and targets.count('guide')==2,targets
+              assert page.locator('text=29 €').count()==0
+              cover=page.locator('.aq-brief__baseline img').evaluate('i=>({w:i.naturalWidth,h:i.naturalHeight,complete:i.complete})')
+              assert cover['complete'] and cover['w']>0,cover
+
+              if label=='mobile':
+                  for i in range(4):
+                      a=page.locator('.atlas-shell__nav a').nth(i)
+                      box=a.bounding_box(); fs=a.evaluate('e=>parseFloat(getComputedStyle(e).fontSize)')
+                      assert box and box['height']>=42 and fs>=13,(i,box,fs)
+
+              page.screenshot(path=str(out/f'accompagnement-{label}-fresh.png'),full_page=True)
+
+              # Keyboard/focus path: shell link then modal button.
+              page.locator('body').press('Tab')
+              active=page.evaluate("document.activeElement && document.activeElement.tagName")
+              assert active in ('A','BUTTON'),active
+              focus_outline=page.evaluate("""() => {const e=document.activeElement,s=getComputedStyle(e);return {outline:s.outlineStyle,outlineWidth:s.outlineWidth,boxShadow:s.boxShadow}}""")
+              assert focus_outline['outline']!='none' or focus_outline['outlineWidth']!='0px' or focus_outline['boxShadow']!='none',focus_outline
+
+              modals=[]
+              for key,title in [('guided','Projet USA'),('coordination','Coordination'),('signature','Signature')]:
+                  btn=page.locator(f'[data-program="{key}"]'); btn.scroll_into_view_if_needed(); btn.click(); page.wait_for_timeout(80)
+                  d=page.locator('#programmeDialog'); assert d.evaluate('x=>x.open')
+                  assert page.locator('#programmeTitle').inner_text()==title
+                  assert page.locator('#programmeContact').is_disabled()
+                  assert page.locator('#programmeContact').get_attribute('href') is None
+                  modal_overflow=overflow(page,vp['width'])
+                  page.screenshot(path=str(out/f'accompagnement-{label}-{key}-modal.png'),full_page=False)
+                  page.locator('#closeProgramme').click(); assert not d.evaluate('x=>x.open')
+                  btn.click(); page.keyboard.press('Escape'); page.wait_for_timeout(40); assert not d.evaluate('x=>x.open')
+                  modals.append({'key':key,'overflow':modal_overflow})
+
+              final_overflow=overflow(page,vp['width'])
+              assert not page_errors,page_errors
+              assert not console_errors,console_errors
+              assert not same_origin_fail,same_origin_fail
+
+              reduced=browser.new_page(viewport=vp,reduced_motion='reduce')
+              stub_external(reduced)
+              rr=reduced.goto(ACC,wait_until='domcontentloaded',timeout=45000); assert rr and rr.ok
+              reduced.wait_for_timeout(100)
+              duration=reduced.locator('.aq-service').first.evaluate('el=>getComputedStyle(el).transitionDuration')
+              assert duration in ('0s','0.00001s','0.01ms','1e-05s'),duration
+              reduced.close()
+
+              info={'status':r.status,'initialOverflow':initial_overflow,'finalOverflow':final_overflow,'cover':cover,'modalChecks':modals,'freeFunnelTargets':targets,'focus':focus_outline,'reducedMotion':duration,'pageErrors':page_errors,'consoleErrors':console_errors,'sameOriginFailures':same_origin_fail}
+              page.close(); return info
+
+          def adjacent(browser,path,label,w=1440,h=1000):
+              p=browser.new_page(viewport={'width':w,'height':h})
+              stub_external(p)
+              errs=[]; cons=[]; fails=[]
+              p.on('pageerror',lambda e:errs.append(str(e)))
+              p.on('console',lambda m:cons.append(m.text) if m.type=='error' else None)
+              p.on('requestfailed',lambda r:fails.append(r.url) if r.url.startswith(ROOT) else None)
+              r=p.goto(f'{ROOT}/{path}',wait_until='domcontentloaded',timeout=45000)
+              assert r and r.ok,(label,r.status if r else None)
+              p.wait_for_timeout(300)
+              g=overflow(p,w)
+              assert not errs,(label,errs)
+              assert not cons,(label,cons)
+              assert not fails,(label,fails)
+              result={'status':r.status,'overflow':g,'title':p.title()}
+              p.close(); return result
+
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True)
+              for label,vp in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+                  report['viewports'][label]=gate(browser,label,vp)
+              report['adjacent']['guide']=adjacent(browser,'offres.html','guide')
+              report['adjacent']['roadmap']=adjacent(browser,'parcours-usa.html','roadmap')
+              report['adjacent']['explorer']=adjacent(browser,'index.html','explorer')
+              browser.close()
+          report['status']='PASS'
+          Path('qa-artifacts/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/qa.py
+
+      - name: Upload exact-byte QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-p5q2-rcurrent-accompagnement-qa
+          path: qa-artifacts
+          if-no-files-found: error
