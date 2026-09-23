@@ -177,5 +177,6 @@ function boot(){
   function bindComparator(){const host=document.querySelector('#compareTable');if(!host||host.dataset.atlasGbrComparatorBound==='true')return;host.dataset.atlasGbrComparatorBound='true';reconcileComparator();new MutationObserver(()=>queueMicrotask(reconcileComparator)).observe(host,{childList:true,subtree:true});}
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{mountInspector();bindComparator();},{once:true});else{mountInspector();bindComparator();}
-})(typeof window!=='undefined'?window:null);
+}
+boot();
 })(typeof window!=='undefined'?window:null);
