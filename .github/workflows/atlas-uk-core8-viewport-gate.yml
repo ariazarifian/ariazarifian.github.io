@@ -48,6 +48,7 @@ jobs:
           const results=[];
           const assert=(ok,msg)=>{if(!ok)throw new Error(msg)};
           const clickDom=(page,sel)=>page.evaluate(s=>{const el=document.querySelector(s); if(!el) throw new Error(`missing ${s}`); el.click();},sel);
+          const ensureSaved=(page,id)=>page.evaluate(id=>{if(!window.AtlasExplorer.state.saved.includes(id)){const b=document.querySelector(`[data-save="${id}"]`);if(!b)throw new Error(`missing save ${id}`);b.click();}},id);
           async function run(viewport,label){
             const browser=await chromium.launch({headless:true});
             const context=await browser.newContext({viewport,reducedMotion:'reduce'});
@@ -79,12 +80,12 @@ jobs:
             assert(await page.locator('[data-atlas-uk-evidence] .atlas-evidence__row').first().locator(':scope>p').isVisible(),`${label}: progressive disclosure inaccessible`);
             assert((await page.locator('[data-atlas-uk-evidence] a.detail-source').first().getAttribute('href'))?.startsWith('https://'),`${label}: direct source inaccessible`);
             await page.screenshot({path:`qa-artifacts/${label}-uk-disclosure.png`,fullPage:true});
-            await page.evaluate(()=>{const b=document.querySelector('[data-save="GBR"]'); if(b&&!b.classList.contains('saved')) b.click();});
+            await ensureSaved(page,'GBR');
             await page.evaluate(()=>window.AtlasExplorer.selectCountry('CAN',false));
             await page.waitForSelector('[data-atlas-canada-evidence]');
             const can=await page.evaluate(()=>{const p=document.querySelector('[data-atlas-canada-evidence]'),rows=[...p.querySelectorAll('.atlas-evidence__row')],ins=document.querySelector('#inspector');return{rows:rows.length,compact:rows.every(r=>getComputedStyle(r.querySelector(':scope>p')).display==='none'),pageOverflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,inspectorOverflow:ins.scrollWidth-ins.clientWidth}});
             assert(can.rows===8&&can.compact&&can.pageOverflow<=1&&can.inspectorOverflow<=1,`${label}: Canada readability/overflow regression`);
-            await page.evaluate(()=>{const b=document.querySelector('[data-save="CAN"]'); if(b&&!b.classList.contains('saved')) b.click();});
+            await ensureSaved(page,'CAN');
             await page.evaluate(()=>window.AtlasExplorer.selectCountry('SGP',false));
             await page.waitForSelector('[data-atlas-singapore-evidence]');
             assert(await page.locator('[data-atlas-singapore-evidence] .atlas-evidence__row').count()===8,`${label}: Singapore normalized regression`);
@@ -97,10 +98,9 @@ jobs:
             await clickDom(page,'#resetFilters');
             if(viewport.width<600){const mf=page.locator('#mobileFilters'); if(await mf.isVisible()&&(await mf.getAttribute('aria-expanded'))==='true') await mf.click();}
             const zoom0=await page.locator('#zoomValue').innerText(); await clickDom(page,'#zoomIn'); await page.waitForTimeout(100); const zoom1=await page.locator('#zoomValue').innerText(); assert(zoom1!==zoom0,`${label}: zoom in regression`); await clickDom(page,'#zoomOut');
-            await page.evaluate(()=>window.AtlasExplorer.selectCountry('GBR',false));
-            await page.evaluate(()=>{const b=document.querySelector('[data-save="GBR"]');if(b&&!b.classList.contains('saved'))b.click();});
-            await page.evaluate(()=>window.AtlasExplorer.selectCountry('CAN',false));
-            await page.evaluate(()=>{const b=document.querySelector('[data-save="CAN"]');if(b&&!b.classList.contains('saved'))b.click();});
+            await page.evaluate(()=>window.AtlasExplorer.selectCountry('GBR',false)); await ensureSaved(page,'GBR');
+            await page.evaluate(()=>window.AtlasExplorer.selectCountry('CAN',false)); await ensureSaved(page,'CAN');
+            const saved=await page.evaluate(()=>window.AtlasExplorer.state.saved.slice()); assert(saved.includes('GBR')&&saved.includes('CAN'),`${label}: save state missing ${JSON.stringify(saved)}`);
             await clickDom(page,'#openCompare'); await page.waitForSelector('#compareDialog[open]');
             const cmp=await page.locator('#compareTable').innerText(); assert(/Royaume-Uni/.test(cmp)&&/Canada/.test(cmp)&&/Écosse/.test(cmp)&&/19 % \/ 25 %/.test(cmp),`${label}: comparator/save regression`); await clickDom(page,'#compareDialog [data-close]');
             await clickDom(page,'[data-layer="conflict"]');
@@ -113,7 +113,7 @@ jobs:
             assert(pageErrors.length===0,`${label}: page errors ${pageErrors.join(' | ')}`);
             assert(sameOriginFails.length===0,`${label}: same-origin network failures ${sameOriginFails.join(' | ')}`);
             const productConsole=consoleErrors.filter(x=>!/umami|ERR_BLOCKED_BY_CLIENT|Failed to load resource/i.test(x)); assert(productConsole.length===0,`${label}: console errors ${productConsole.join(' | ')}`);
-            results.push({label,requestedViewport:viewport,actualViewport:actual,contract,uk,can,adjacent,seo,pageErrors,consoleErrors,sameOriginFails});
+            results.push({label,requestedViewport:viewport,actualViewport:actual,contract,uk,can,saved,adjacent,seo,pageErrors,consoleErrors,sameOriginFails});
             await browser.close();
           }
           await run({width:1440,height:1000},'desktop-1440x1000');
