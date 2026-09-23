@@ -1,7 +1,7 @@
-name: Atlas PEX-D1H United Kingdom runtime QA4
+name: Atlas PEX-D1H United Kingdom current-live QA
 on:
   push:
-    branches: [ops/atlas-pex-d1h-uk-qa4-20260923]
+    branches: [ops/atlas-pex-d1h-uk-rcurrent-qa-20260923]
 permissions:
   contents: read
 jobs:
@@ -14,15 +14,16 @@ jobs:
       - name: Preserve QA harness and checkout exact Product candidate
         run: |
           cp scripts/pex_d1h_qa4.cjs /tmp/pex_d1h_qa4.cjs
-          git checkout --detach f28862bf827bcd343fbdb65864458c8665c6bd40
+          git checkout --detach 7b312a3aa91035d5e04dbb42695cddcd6e20859f
       - name: Syntax and bounded Product scope
         run: |
           node --check atlas-exit/country-evidence-united-kingdom.js
-          test "$(git diff --name-only 93c6cc1b1f54262ad23120d6067765dbaca3bbd8 f28862bf827bcd343fbdb65864458c8665c6bd40 -- atlas-exit | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-united-kingdom.js atlas-exit/index.html | sort)"
+          test "$(git diff --name-only 21193f4a42be246d968d7c9e3118ac8229bc3399 7b312a3aa91035d5e04dbb42695cddcd6e20859f -- atlas-exit | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-united-kingdom.js atlas-exit/index.html | sort)"
           test "$(grep -o "state:'READY_FOR_PRODUCT'" atlas-exit/country-evidence-united-kingdom.js | wc -l | tr -d ' ')" = "8"
           grep -q 'universal183DayRule:false' atlas-exit/country-evidence-united-kingdom.js
           grep -q 'scotlandSeparateSchedule:true' atlas-exit/country-evidence-united-kingdom.js
           grep -q 'reconcileExplorerRuntime' atlas-exit/country-evidence-united-kingdom.js
+          grep -q 'country-evidence-united-kingdom.js?v=pex-d1h-1' atlas-exit/index.html
       - name: Install Chromium
         run: |
           npm init -y >/dev/null 2>&1
@@ -36,13 +37,19 @@ jobs:
         run: |
           mkdir -p qa-artifacts
           NODE_PATH="$PWD/node_modules" node /tmp/pex_d1h_qa4.cjs
-      - name: Shared readability and prior normalized countries unchanged
+      - name: Shared readability and adjacent surfaces unchanged
         run: |
-          git diff --exit-code 93c6cc1b1f54262ad23120d6067765dbaca3bbd8 f28862bf827bcd343fbdb65864458c8665c6bd40 -- atlas-exit/country-evidence.js atlas-exit/atlas-country-evidence.css atlas-exit/script.js atlas-exit/conflict-tensions.js atlas-exit/conflict-tensions.css atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-switzerland.js atlas-exit/country-evidence-singapore.js atlas-exit/country-evidence-canada.js
+          git diff --exit-code 21193f4a42be246d968d7c9e3118ac8229bc3399 7b312a3aa91035d5e04dbb42695cddcd6e20859f -- atlas-exit/country-evidence.js atlas-exit/atlas-country-evidence.css atlas-exit/script.js atlas-exit/conflict-tensions.js atlas-exit/conflict-tensions.css atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-switzerland.js atlas-exit/country-evidence-singapore.js atlas-exit/country-evidence-canada.js atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html atlas-exit/atlas-events.js atlas-exit/sitemap.xml
           grep -q '.atlas-evidence__row>p{display:none}' atlas-exit/atlas-country-evidence.css
+          ! grep -q '>Découvrir<' atlas-exit/index.html
+          grep -q 'Stabilité politique' atlas-exit/index.html
+          grep -q 'Conflit & tensions' atlas-exit/index.html
+          grep -q 'atlas-v15-cover.webp' atlas-exit/offres.html
+          grep -q 'guide_download_click' atlas-exit/offres.html
+          grep -q 'free_funnel_cta' atlas-exit/offres.html
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: atlas-pex-d1h-united-kingdom-runtime-qa4
+          name: atlas-pex-d1h-united-kingdom-rcurrent-qa
           path: qa-artifacts
           if-no-files-found: warn
