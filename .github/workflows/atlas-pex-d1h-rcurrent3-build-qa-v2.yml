@@ -1,0 +1,139 @@
+name: Atlas PEX-D1H UK rcurrent3 exact-byte QA v2
+on:
+  push:
+    branches: [ops/atlas-pex-d1h-uk-rcurrent2-qa-20260923]
+permissions:
+  contents: write
+jobs:
+  build-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build direct-child Product candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=d6c2e05ae746f961a8a31655cbe341802c748ac0
+          SOURCE=3a3ac7ff01a75730d3d2aa80a621361cafc78d75
+          BRANCH=ops/atlas-pex-d1h-uk-rcurrent3-20260923
+          git checkout -B "$BRANCH" "$BASE"
+          git show "$SOURCE":atlas-exit/index.html > atlas-exit/index.html
+          git show "$SOURCE":atlas-exit/country-evidence-united-kingdom.js > atlas-exit/country-evidence-united-kingdom.js
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('atlas-exit/country-evidence-united-kingdom.js')
+          s=p.read_text()
+          old="const set=(label,html)=>{const target=cell(label);if(target&&!(target.dataset.atlasNormalized==='GBR'&&target.innerHTML===html)){target.innerHTML=html;target.dataset.atlasNormalized='GBR';}};"
+          new="const set=(label,html)=>{const target=cell(label);if(!target||target.dataset.atlasNormalized==='GBR')return;target.innerHTML=html;target.dataset.atlasNormalized='GBR';};"
+          assert s.count(old)==1
+          p.write_text(s.replace(old,new))
+          PY
+          git config user.name 'Atlas Product Executor'
+          git config user.email '71772355+ariazarifian@users.noreply.github.com'
+          git add atlas-exit/index.html atlas-exit/country-evidence-united-kingdom.js
+          test "$(git diff --cached --name-only | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-united-kingdom.js atlas-exit/index.html | sort)"
+          git commit -m 'product: add UK CORE8 with stable comparator reconciliation'
+          CANDIDATE=$(git rev-parse HEAD)
+          echo "CANDIDATE=$CANDIDATE" >> "$GITHUB_ENV"
+          echo "BASE=$BASE" >> "$GITHUB_ENV"
+          echo "PRODUCT_BRANCH=$BRANCH" >> "$GITHUB_ENV"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          test "$(git diff --name-only "$BASE" HEAD | sort)" = "$(printf '%s\n' atlas-exit/country-evidence-united-kingdom.js atlas-exit/index.html | sort)"
+          git diff --exit-code "$BASE" HEAD -- atlas-exit/sitemap.xml
+          echo "Exact Product candidate=$CANDIDATE"
+      - name: Semantic and preservation gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check atlas-exit/country-evidence-united-kingdom.js
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('atlas-exit/country-evidence-united-kingdom.js').read_text()
+          required=[
+            "state:'READY_FOR_PRODUCT'",'day183OnlyOneRoute:true','universal183DayRule:false',
+            'scotlandSeparateSchedule:true','ukWideScalarForbidden:true','smallProfitsRate:19','mainRate:25',
+            'marginalReliefBetween:true','associatedCompanyAdjustments:true','shortAccountingPeriodAdjustments:true',
+            'etaWorkPermission:false','etaResidencePermission:false','automaticNhsFromFrenchNationality:false',
+            "if(!target||target.dataset.atlasNormalized==='GBR')return"
+          ]
+          assert s.count("state:'READY_FOR_PRODUCT'")==8
+          for needle in required[1:]: assert needle in s, needle
+          assert 'data-atlas-united-kingdom-evidence data-country="GBR" open' not in s
+          i=Path('atlas-exit/index.html').read_text()
+          assert 'country-evidence-united-kingdom.js' in i
+          assert '>Découvrir<' not in i
+          assert 'Stabilité politique' in i and 'Conflit & tensions' in i
+          css=Path('atlas-exit/atlas-country-evidence.css').read_text()
+          assert '.atlas-evidence__row>p{display:none' in css
+          off=Path('atlas-exit/offres.html').read_text()
+          assert 'assets/atlas-v15-cover.webp' in off and 'guide_download_click' in off and 'free_funnel_cta' in off
+          sm=Path('atlas-exit/sitemap.xml').read_text()
+          assert 'https://atlas-expat.fr/parcours-usa.html' in sm
+          print('STATIC_SEMANTIC_PASS')
+          PY
+          git diff --exit-code "$BASE" "$CANDIDATE" -- atlas-exit/country-evidence.js atlas-exit/atlas-country-evidence.css atlas-exit/script.js atlas-exit/conflict-tensions.js atlas-exit/conflict-tensions.css atlas-exit/country-evidence-australia.js atlas-exit/country-evidence-spain.js atlas-exit/country-evidence-japan.js atlas-exit/country-evidence-switzerland.js atlas-exit/country-evidence-singapore.js atlas-exit/country-evidence-canada.js atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html atlas-exit/atlas-events.js atlas-exit/sitemap.xml atlas-exit/robots.txt
+      - name: Install Chromium
+        run: |
+          mkdir -p /tmp/ukqa && cd /tmp/ukqa
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact committed candidate
+        run: |
+          python3 -m http.server 8000 >/tmp/http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && exit 0; sleep 1; done
+          cat /tmp/http.log; exit 1
+      - name: Chromium desktop + mobile Product gate
+        run: |
+          mkdir -p qa-artifacts
+          cat > /tmp/qa.cjs <<'JS'
+          const assert=require('node:assert/strict'),fs=require('node:fs');
+          const {chromium}=require('/tmp/ukqa/node_modules/playwright');
+          const URL='http://127.0.0.1:8000/atlas-exit/index.html';
+          const report={candidate:process.env.CANDIDATE,base:process.env.BASE,viewports:[],adjacent:{},errors:[]};
+          const stage=(v,s)=>console.log('STAGE',v,s);
+          async function choose(page,name,id,sel){
+            await page.locator('#countrySearch').fill(name); await page.waitForTimeout(120);
+            const r=page.locator(`[data-country="${id}"]`).first(); await r.waitFor({state:'attached',timeout:6000}); await r.click({force:true});
+            await page.waitForSelector(sel,{state:'attached',timeout:6000}); return page.locator(sel).first();
+          }
+          async function vp(browser,v){
+            const ctx=await browser.newContext({viewport:{width:v.w,height:v.h},reducedMotion:'reduce'}); const page=await ctx.newPage(); page.setDefaultTimeout(6000);
+            const errs=[]; page.on('pageerror',e=>errs.push('page:'+e));
+            page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource/i.test(m.text())) errs.push('console:'+m.text())});
+            page.on('requestfailed',r=>{try{if(new URL(r.url()).origin==='http://127.0.0.1:8000') errs.push('network:'+r.url()+':'+(r.failure()?.errorText||''))}catch{}});
+            stage(v.n,'goto'); await page.goto(URL,{waitUntil:'domcontentloaded'});
+            await page.waitForFunction(()=>window.AtlasExplorer?.ready?.()&&window.ATLAS_COUNTRY_EVIDENCE_UNITED_KINGDOM?.validation?.ok===true,null,{timeout:12000});
+            await page.waitForFunction(()=>window.AtlasExplorer.getCountries().find(c=>c.id==='GBR')?.tax===null,null,{timeout:8000});
+            assert.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true); assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+            if(v.n==='mobile'){await page.locator('#mobileFilters').click({force:true}); assert.equal(await page.locator('#mobileFilters').getAttribute('aria-expanded'),'true');}
+            stage(v.n,'contract');
+            const c=await page.evaluate(()=>{const e=ATLAS_COUNTRY_EVIDENCE,g=e.countries.GBR,x=AtlasExplorer.getCountries().find(y=>y.id==='GBR');return {keys:Object.keys(g.fields),required:e.requiredFields,states:Object.values(g.fields).map(z=>z.state),counts:Object.fromEntries(Object.entries(g.fields).map(([k,z])=>[k,e.sourcesFor(z).length])),urls:Object.values(g.fields).flatMap(z=>e.sourcesFor(z).map(s=>s.locator)),tax:x.tax,taxLabel:x.taxLabel,scope:x.scope,srt:g.fields.tax_residency.structure,pit:g.fields.pit.structure,corp:g.fields.cit_business.structure,visa:g.fields.residence_visa.structure,health:g.fields.healthcare.structure};});
+            assert.deepEqual(c.keys,c.required); assert.equal(c.states.filter(x=>x==='READY_FOR_PRODUCT').length,8); assert.deepEqual(c.counts,{tax_residency:1,pit:1,cit_business:1,consumption_tax:1,cost_context:1,residence_visa:3,healthcare:2,safety_context:1}); assert.equal(c.urls.length,11); assert.equal(new Set(c.urls).size,11);
+            assert.equal(c.tax,null); assert.match(c.taxLabel,/Écosse distincte/); assert.match(c.scope,/Écosse séparée/); assert.equal(c.srt.universal183DayRule,false); assert.equal(c.srt.day183OnlyOneRoute,true); assert.equal(c.pit.scotlandSeparateSchedule,true); assert.equal(c.pit.ukWideScalarForbidden,true); assert.equal(c.corp.smallProfitsRate,19); assert.equal(c.corp.mainRate,25); assert.equal(c.corp.marginalReliefBetween,true); assert.equal(c.visa.etaWorkPermission,false); assert.equal(c.visa.etaResidencePermission,false); assert.equal(c.health.automaticNhsFromFrenchNationality,false);
+            stage(v.n,'uk'); let p=await choose(page,'Royaume-Uni','GBR','[data-atlas-united-kingdom-evidence][data-country="GBR"]'); assert.equal(await p.getAttribute('open'),null); assert.equal(await p.locator('[data-evidence-field]').count(),8); assert.equal(await p.locator('a.detail-source').count(),11); assert.ok((await p.locator('.atlas-evidence__row>p').evaluateAll(es=>es.map(e=>getComputedStyle(e).display))).every(x=>x==='none')); await p.locator(':scope > summary').click({force:true}); assert.notEqual(await p.getAttribute('open'),null); const text=await p.innerText(); for(const re of [/183 jours/,/20–45 % E\/W\/NI/,/19 %/,/20 % standard/,/676,60 £/,/ETA visite/,/NHS \/ IHS/,/Vigilance normale/]) assert.match(text,re); const src=p.locator('.atlas-evidence__source').first(); await src.locator('summary').click({force:true}); assert.equal(await src.locator('a.detail-source').isVisible(),true); assert.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true); assert.doesNotMatch(await page.locator('#inspector').innerText(),/Découvrir/); await page.locator('[data-save="GBR"]').click({force:true});
+            stage(v.n,'canada'); p=await choose(page,'Canada','CAN','[data-atlas-canada-evidence][data-country="CAN"]'); assert.equal(await p.locator('[data-evidence-field]').count(),8); assert.equal(await p.locator('a.detail-source').count(),11); assert.ok((await p.locator('.atlas-evidence__row>p').evaluateAll(es=>es.map(e=>getComputedStyle(e).display))).every(x=>x==='none')); assert.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true); await page.locator('[data-save="CAN"]').click({force:true}); assert.equal((await page.locator('#savedCount').textContent()).trim(),'2');
+            stage(v.n,'singapore'); p=await choose(page,'Singapour','SGP','[data-atlas-singapore-evidence][data-country="SGP"]'); assert.equal(await p.locator('[data-evidence-field]').count(),8); assert.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);
+            stage(v.n,'conflict'); assert.equal(await page.locator('[data-layer="stability"]').count(),1); assert.equal(await page.locator('[data-layer="conflict"]').count(),1); await page.locator('[data-layer="conflict"]').click({force:true}); await page.waitForFunction(()=>document.querySelector('[data-layer="conflict"]')?.getAttribute('aria-pressed')==='true'); await choose(page,'Japon','JPN','[data-conflict-panel]'); await page.waitForFunction(()=>/17:54/.test(document.querySelector('[data-conflict-panel]')?.textContent||'')); let ct=await page.locator('[data-conflict-panel]').innerText(); assert.match(ct,/590 km/); assert.match(ct,/70 km/); assert.match(ct,/modéré/i); await choose(page,'Thaïlande','THA','[data-conflict-panel]'); await page.waitForFunction(()=>/Cambodge/.test(document.querySelector('[data-conflict-panel]')?.textContent||'')); ct=await page.locator('[data-conflict-panel]').innerText(); assert.match(ct,/modéré/i); assert.match(ct,/Cambodge/); await page.locator('[data-layer="tax"]').click({force:true});
+            stage(v.n,'search-filter-zoom'); await page.locator('#countrySearch').fill('Royaume-Uni'); await page.waitForTimeout(100); assert.equal(await page.locator('[data-country="GBR"]').count(),1); await page.locator('#countrySearch').fill(''); await page.locator('[data-region="Europe"]').click({force:true}); await page.waitForTimeout(100); assert.ok(Number((await page.locator('#resultCount').textContent()).match(/\d+/)?.[0]||0)>0); await page.locator('#resetFilters').click({force:true}); const z=await page.locator('#zoomValue').textContent(); await page.locator('#zoomIn').click({force:true}); await page.waitForTimeout(100); assert.notEqual(await page.locator('#zoomValue').textContent(),z);
+            stage(v.n,'compare'); await page.locator('#openCompare').click({force:true}); await page.locator('#compareDialog').waitFor({state:'visible',timeout:5000}); const cmp=await page.locator('#compareTable').innerText({timeout:5000}); assert.match(cmp,/Royaume-Uni/); assert.match(cmp,/Canada/); assert.match(cmp,/E\/W\/NI 20–45 %/); assert.match(cmp,/19 % petites bénéfices/); assert.match(cmp,/20 % standard/); assert.ok(await page.locator('#compareTable [data-atlas-normalized="GBR"]').count()>=5); assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+            await page.screenshot({path:`qa-artifacts/uk-${v.n}.png`,animations:'disabled'}); assert.deepEqual(errs,[]); report.viewports.push({name:v.n,width:v.w,height:v.h,passed:true}); report.errors.push(...errs); await ctx.close(); stage(v.n,'pass');
+          }
+          async function adjacent(browser){const ctx=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'reduce'}); for(const [k,path,re] of [['guide','offres.html',/Télécharger/i],['roadmap','parcours-usa.html',/Roadmap/i],['accompagnement','accompagnement.html',/Accompagnement/i]]){const p=await ctx.newPage(); const e=[]; p.on('pageerror',x=>e.push(String(x))); p.on('requestfailed',r=>{try{if(new URL(r.url()).origin==='http://127.0.0.1:8000')e.push(r.url())}catch{}}); await p.goto('http://127.0.0.1:8000/atlas-exit/'+path,{waitUntil:'domcontentloaded'}); assert.match(await p.locator('body').innerText(),re); assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true); assert.deepEqual(e,[]); report.adjacent[k]={passed:true}; await p.close();} await ctx.close();}
+          (async()=>{const b=await chromium.launch({headless:true});try{await vp(b,{n:'desktop',w:1440,h:1000});await vp(b,{n:'mobile',w:390,h:844});await adjacent(b);}finally{await b.close();}fs.writeFileSync('qa-artifacts/report.json',JSON.stringify(report,null,2));console.log('PRODUCT_QA_PASS',JSON.stringify(report));})().catch(e=>{console.error('QA_FAIL',e);process.exit(1)});
+          JS
+          timeout 180s node /tmp/qa.cjs
+      - name: Push exact Product branch after PASS
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE"
+          git push origin "HEAD:refs/heads/$PRODUCT_BRANCH"
+          echo "PUSHED=$CANDIDATE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-d1h-uk-rcurrent3-product-qa-v2
+          path: qa-artifacts
+          if-no-files-found: warn
