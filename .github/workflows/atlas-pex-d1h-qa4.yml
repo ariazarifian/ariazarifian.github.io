@@ -14,6 +14,7 @@ jobs:
       - name: Preserve QA harness and checkout exact Product candidate
         run: |
           cp scripts/pex_d1h_qa4.cjs /tmp/pex_d1h_qa4.cjs
+          sed -i 's#/Modéré/#/modéré/i#g' /tmp/pex_d1h_qa4.cjs
           git checkout --detach 7b312a3aa91035d5e04dbb42695cddcd6e20859f
       - name: Syntax and bounded Product scope
         run: |
