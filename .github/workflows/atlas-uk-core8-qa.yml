@@ -81,7 +81,7 @@ jobs:
             assert(uk.hiddenSummaries,`${label}: UK default is verbose`);
             assert(uk.pageOverflow<=1&&uk.inspectorOverflow<=1,`${label}: UK overflow page=${uk.pageOverflow} inspector=${uk.inspectorOverflow}`);
             assert(!uk.discover&&uk.stability&&uk.conflict,`${label}: accepted Explorer labels regressed`);
-            await page.locator('[data-atlas-uk-evidence] .atlas-evidence__source').first().click();
+            await page.locator('[data-atlas-uk-evidence] .atlas-evidence__source > summary').first().click();
             assert(await page.locator('[data-atlas-uk-evidence] .atlas-evidence__row').first().locator(':scope>p').isVisible(),`${label}: progressive disclosure summary inaccessible`);
             assert((await page.locator('[data-atlas-uk-evidence] a.detail-source').first().getAttribute('href'))?.startsWith('https://'),`${label}: source disclosure inaccessible`);
             await page.screenshot({path:`qa-artifacts/${label}-uk.png`,fullPage:true});
@@ -98,8 +98,8 @@ jobs:
             await page.locator('[data-layer="tax"]').click();
             await page.locator('[data-region="Europe"]').click().catch(()=>{});
             await page.evaluate(()=>window.AtlasExplorer.resetFilters());
-            await page.locator('#mapZoomIn').click().catch(()=>{});
-            await page.locator('#mapZoomOut').click().catch(()=>{});
+            await page.locator('#zoomIn').click().catch(()=>{});
+            await page.locator('#zoomOut').click().catch(()=>{});
             await page.evaluate(()=>window.AtlasExplorer.selectCountry('GBR',false));
             const saved=await page.evaluate(()=>window.AtlasExplorer.state.saved);
             if(!saved.includes('GBR'))await page.locator('[data-save="GBR"]').click();
