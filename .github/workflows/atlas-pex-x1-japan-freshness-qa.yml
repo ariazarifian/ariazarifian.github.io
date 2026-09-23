@@ -1,0 +1,134 @@
+name: Atlas PEX-X1 Japan freshness QA
+on:
+  push:
+    branches: [ops/atlas-pex-x1-japan-freshness-qa-20260923]
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PRODUCT_HEAD: 8142a288df76d5d69117dbb0ad31cfae7110486f
+      ROLLBACK_HEAD: 93c6cc1b1f54262ad23120d6067765dbaca3bbd8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove bounded exact Product candidate
+        run: |
+          test "$(git rev-parse "$PRODUCT_HEAD^")" = "$ROLLBACK_HEAD"
+          test "$(git diff --name-only "$ROLLBACK_HEAD..$PRODUCT_HEAD")" = "atlas-exit/conflict-tensions.js"
+          test "$(git diff --name-only "$PRODUCT_HEAD..HEAD")" = ".github/workflows/atlas-pex-x1-japan-freshness-qa.yml"
+          git diff --check "$ROLLBACK_HEAD..$PRODUCT_HEAD"
+          git show "$PRODUCT_HEAD:atlas-exit/conflict-tensions.js" > /tmp/candidate-conflict.js
+          git show "$ROLLBACK_HEAD:atlas-exit/conflict-tensions.js" > /tmp/rollback-conflict.js
+          node --check /tmp/candidate-conflict.js
+          sha256sum /tmp/candidate-conflict.js | tee candidate-conflict-sha256.txt
+      - name: Verify Japan evidence and non-Japan preservation
+        run: |
+          node <<'JS'
+          const fs=require('fs'),vm=require('vm'),a=require('assert/strict');
+          function load(path){const sandbox={window:{},document:{readyState:'loading',addEventListener(){}}};vm.createContext(sandbox);vm.runInContext(fs.readFileSync(path,'utf8'),sandbox);return JSON.parse(JSON.stringify(sandbox.window.ATLAS_CONFLICT_TENSIONS));}
+          const old=load('/tmp/rollback-conflict.js'),cur=load('/tmp/candidate-conflict.js');
+          for(const id of Object.keys(old)){if(id!=='JPN')a.deepEqual(cur[id],old[id],`${id} must remain byte-semantically unchanged`)}
+          const j=cur.JPN;
+          a.equal(j.category,'Modéré'); a.equal(j.multi_source_required,true); a.equal(j.state,'READY_FOR_PRODUCT');
+          a.match(j.context,/plusieurs lancements/); a.match(j.context,/15:00/); a.match(j.context,/440 km/); a.match(j.context,/17:54/); a.match(j.context,/590 km/); a.match(j.context,/70 km/); a.match(j.context,/hors de la ZEE/); a.match(j.context,/aucun dommage/);
+          a.match(j.geography,/aucune zone de combat terrestre/); a.match(j.caveat,/hors ZEE/); a.match(j.caveat,/zone de guerre/);
+          a.equal(j.sources[0].url,'https://www.mod.go.jp/j/press/news/2026/09/20i.html');
+          a.equal(j.sources[1].url,'https://www.mod.go.jp/j/press/kisha/2026/0920b_r.html');
+          a.equal(j.sources.length,6);
+          console.log(JSON.stringify({category:j.category,sources:j.sources.map(x=>x.url),nonJapanPreserved:true},null,2));
+          JS
+      - name: Prepare exact candidate worktree
+        run: |
+          git worktree add --detach /tmp/product "$PRODUCT_HEAD"
+          test "$(git -C /tmp/product rev-parse HEAD)" = "$PRODUCT_HEAD"
+          mkdir -p qa-artifacts
+          cp candidate-conflict-sha256.txt qa-artifacts/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium
+        run: |
+          mkdir -p /tmp/pw && cd /tmp/pw
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+      - name: Real Chromium desktop/mobile exact-byte gate
+        run: |
+          python3 -m http.server 8000 --directory /tmp/product >/tmp/atlas-http.log 2>&1 &
+          pid=$!; trap 'kill $pid || true' EXIT
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && break; sleep 1; done
+          cat >/tmp/qa.cjs <<'JS'
+          const {chromium}=require('/tmp/pw/node_modules/playwright');
+          const fs=require('fs'),a=require('assert/strict'),path=require('path');
+          const url='http://127.0.0.1:8000/atlas-exit/index.html',out=path.join(process.env.GITHUB_WORKSPACE,'qa-artifacts');
+          const report={productHead:process.env.PRODUCT_HEAD,rollbackHead:process.env.ROLLBACK_HEAD,viewports:[],checks:[],errors:[]};
+          const mark=(v,s)=>report.checks.push(`${v}: ${s}`);
+          async function dismiss(page){await page.evaluate(()=>document.querySelector('#inspector [data-dismiss]')?.click());await page.waitForTimeout(80)}
+          async function openCountry(page,id,name,wantConflict=false){
+            await page.locator('#countrySearch').fill(name);await page.waitForTimeout(180);
+            const row=page.locator(`#results [data-country="${id}"]`);a.equal(await row.count(),1,`${id} unique result`);
+            await row.evaluate(el=>el.click());
+            await page.waitForFunction(iso=>window.AtlasExplorer?.state?.selected===iso,id,{timeout:7000});
+            await page.locator('#inspector .inspector-body').waitFor({state:'visible',timeout:7000});
+            if(wantConflict){const panel=page.locator(`#inspector [data-conflict-panel][data-country="${id}"]`);await panel.waitFor({state:'visible',timeout:10000});return panel}
+            return page.locator('#inspector .inspector-body');
+          }
+          (async()=>{
+            const browser=await chromium.launch({headless:true});
+            for(const cfg of [{name:'desktop',width:1440,height:1000},{name:'mobile',width:390,height:844}]){
+              const context=await browser.newContext({viewport:{width:cfg.width,height:cfg.height}}),page=await context.newPage(),errors=[],failed=[];
+              page.on('pageerror',e=>errors.push(String(e)));
+              page.on('console',m=>{if(m.type()==='error'&&!/umami|ERR_FAILED|Failed to load resource|favicon/i.test(m.text()))errors.push('console: '+m.text())});
+              page.on('requestfailed',r=>{try{if(new URL(r.url()).origin===new URL(url).origin)failed.push(`${r.method()} ${r.url()} ${r.failure()?.errorText||''}`)}catch{}});
+              try{
+                await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+                await page.waitForFunction(()=>window.AtlasExplorer?.ready?.()===true && window.ATLAS_CONFLICT_TENSIONS?.JPN?.sources?.length===6,null,{timeout:20000});
+                a.equal(await page.evaluate(()=>document.fonts.check('12px Manrope')),true,'Manrope');
+                a.equal(await page.locator('[data-layer="explore"]').count(),0,'Découvrir absent');
+                a.match(await page.locator('[data-layer="stability"]').innerText(),/Stabilité politique/);mark(cfg.name,'boot + semantic toolbar');
+
+                const z0=(await page.locator('#zoomValue').innerText()).trim();await page.locator('#zoomIn').evaluate(el=>el.click());await page.waitForTimeout(180);const z1=(await page.locator('#zoomValue').innerText()).trim();a.notEqual(z1,z0,'map zoom changes');await page.locator('#homeMap').evaluate(el=>el.click());mark(cfg.name,'map zoom/home');
+
+                await page.evaluate(()=>document.querySelector('[data-region="Asia"]')?.click());await page.waitForTimeout(180);a.equal(await page.locator('[data-region="Asia"]').getAttribute('aria-pressed'),'true');a.equal(await page.locator('#results [data-country="JPN"]').count(),1);a.equal(await page.locator('#results [data-country="CAN"]').count(),0);await page.locator('#resetFilters').evaluate(el=>el.click());await page.waitForTimeout(180);mark(cfg.name,'region filter/reset');
+
+                await openCountry(page,'CAN','Canada');
+                await page.waitForFunction(()=>document.querySelectorAll('#inspector .atlas-evidence [data-evidence-field]').length===8,null,{timeout:10000});
+                const ev=page.locator('#inspector .atlas-evidence').last();a.equal(await ev.locator('[data-evidence-field]').count(),8,'Canada 8 normalized fields');
+                const summaries=ev.locator('.atlas-evidence__row > p');a.equal(await summaries.count(),8,'Canada summaries retained');for(let i=0;i<8;i++)a.equal(await summaries.nth(i).isVisible(),false,`Canada summary ${i} hidden by default`);
+                a.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'Canada inspector no overflow');a.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'Canada page no overflow');
+                await page.screenshot({path:path.join(out,`canada-${cfg.name}.png`),fullPage:false});await dismiss(page);mark(cfg.name,'Canada compact readability');
+
+                if(cfg.name==='mobile'){const mb=page.locator('#mobileFilters');await mb.evaluate(el=>el.click());a.equal(await mb.getAttribute('aria-expanded'),'true');await mb.evaluate(el=>el.click());await page.waitForTimeout(220);a.equal(await mb.getAttribute('aria-expanded'),'false');mark(cfg.name,'mobile filters drawer')}
+
+                await page.locator('[data-layer="conflict"]').evaluate(el=>el.click());await page.waitForFunction(()=>document.body.classList.contains('conflict-layer'),null,{timeout:5000});a.match(await page.locator('#mapLabel').innerText(),/CONFLIT & TENSIONS/);mark(cfg.name,'conflict layer');
+
+                let panel=await openCountry(page,'JPN','Japon',true);let txt=await panel.innerText();a.match(txt,/Modéré/);a.match(txt,/plusieurs lancements/);a.match(txt,/17:54/);a.match(txt,/590 km/);a.match(txt,/70 km/);a.match(txt,/hors de la ZEE/);a.match(txt,/aucun dommage/);a.match(txt,/aucune zone de combat terrestre/);a.match(txt,/zone de guerre/);a.match(txt,/multi-source requis/);
+                const links=panel.locator('a.conflict-source');a.equal(await links.count(),6,'Japan 6 direct sources');a.equal(await links.nth(0).getAttribute('href'),'https://www.mod.go.jp/j/press/news/2026/09/20i.html');a.equal(await links.nth(1).getAttribute('href'),'https://www.mod.go.jp/j/press/kisha/2026/0920b_r.html');for(let i=0;i<6;i++)a.equal(await links.nth(i).isVisible(),true,`Japan source ${i} accessible`);
+                a.equal(await page.evaluate(()=>window.ATLAS_CONFLICT_TENSIONS.JPN.multi_source_required),true);a.equal(await page.evaluate(()=>window.ATLAS_CONFLICT_TENSIONS.JPN.category),'Modéré');
+                a.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'Japan inspector no overflow');a.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'Japan page no overflow');await page.screenshot({path:path.join(out,`japan-${cfg.name}.png`),fullPage:false});await dismiss(page);mark(cfg.name,'Japan freshness + sources');
+
+                panel=await openCountry(page,'AUS','Australie',true);a.equal(await panel.locator('a.conflict-source').count(),2);txt=await panel.innerText();a.match(txt,/Probable/);a.match(txt,/Aucun conflit armé actif/);await dismiss(page);mark(cfg.name,'Australia unchanged browser regression');
+
+                panel=await openCountry(page,'CAN','Canada',true);await page.locator('#inspector [data-save="CAN"]').evaluate(el=>el.click());await dismiss(page);panel=await openCountry(page,'JPN','Japon',true);await page.locator('#inspector [data-save="JPN"]').evaluate(el=>el.click());await dismiss(page);a.equal((await page.locator('#savedCount').textContent()).trim(),'2','saved count');
+                const compare=page.locator('#openCompare');a.equal(await compare.isDisabled(),false,'compare enabled');await compare.evaluate(el=>el.click());await page.locator('#compareDialog').waitFor({state:'visible',timeout:5000});const crow=page.locator('#compareTable [data-conflict-row]');await crow.waitFor({state:'visible',timeout:5000});a.equal(await crow.locator('td').count(),3);const cmp=await crow.innerText();a.match(cmp,/17:54/);a.match(cmp,/590 km/);await page.locator('#compareDialog [data-close]').evaluate(el=>el.click());mark(cfg.name,'save + comparator');
+
+                await page.locator('[data-layer="stability"]').evaluate(el=>el.click());await page.waitForFunction(()=>!document.body.classList.contains('conflict-layer'));a.match(await page.locator('#mapLabel').innerText(),/BANQUE MONDIALE/);await page.locator('[data-layer="conflict"]').evaluate(el=>el.click());await page.waitForFunction(()=>document.body.classList.contains('conflict-layer'));mark(cfg.name,'layer switch');
+
+                a.equal(await page.locator('#inspector').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'final inspector no overflow');a.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'final page no overflow');a.deepEqual(errors,[],'console/page Product errors');a.deepEqual(failed,[],'same-origin network failures');mark(cfg.name,'overflow/errors clean');
+                report.viewports.push(cfg);report.errors.push(...errors,...failed);
+              }catch(e){fs.writeFileSync(path.join(out,`failure-${cfg.name}.txt`),String(e.stack||e));await page.screenshot({path:path.join(out,`failure-${cfg.name}.png`),fullPage:false}).catch(()=>{});throw e}finally{await context.close()}
+            }
+            await browser.close();fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          PRODUCT_HEAD="$PRODUCT_HEAD" ROLLBACK_HEAD="$ROLLBACK_HEAD" node /tmp/qa.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-pex-x1-japan-freshness-qa
+          path: qa-artifacts
+          if-no-files-found: warn
