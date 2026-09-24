@@ -1,0 +1,176 @@
+name: ATLAS PEX-CF4 Country Factory B4 exact-byte gate
+on:
+  push:
+    branches: [ops/atlas-pex-cf4-country-factory-20260924]
+permissions:
+  contents: write
+jobs:
+  cf4-b4-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Ensure minimal B4 served wiring
+        id: wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('atlas-exit/country-factory-runtime.js')
+          s=p.read_text()
+          if 'ATLAS_COUNTRY_FACTORY_B4_META' not in s:
+              old='  {meta:root.ATLAS_COUNTRY_FACTORY_B3_META,records:root.ATLAS_COUNTRY_FACTORY_B3_RECORDS}\n'
+              new='  {meta:root.ATLAS_COUNTRY_FACTORY_B3_META,records:root.ATLAS_COUNTRY_FACTORY_B3_RECORDS},\n  {meta:root.ATLAS_COUNTRY_FACTORY_B4_META,records:root.ATLAS_COUNTRY_FACTORY_B4_RECORDS}\n'
+              if old not in s: raise SystemExit('B3 batch definition anchor missing')
+              s=s.replace(old,new,1)
+              s=s.replace('/* PEX-CF3 — shared data-first runtime','/* PEX-CF4 — shared data-first runtime',1)
+              s=s.replace("already?.runtimeVersion==='atlas-country-factory-runtime-v3'","already?.runtimeVersion==='atlas-country-factory-runtime-v4'",1)
+              s=s.replace("runtimeVersion:'atlas-country-factory-runtime-v3'","runtimeVersion:'atlas-country-factory-runtime-v4'",1)
+              p.write_text(s)
+          s=p.read_text()
+          assert 'ATLAS_COUNTRY_FACTORY_B4_META' in s
+          assert "runtimeVersion:'atlas-country-factory-runtime-v4'" in s
+          assert "runtimeVersion==='atlas-country-factory-runtime-v4'" in s
+
+          p=Path('atlas-exit/index.html')
+          s=p.read_text()
+          if 'country-factory-dex-cf4-b4-meta.js?v=pex-cf4-b4-1' not in s:
+              old='<script src="country-factory-runtime.js?v=pex-cf3-b3-1" defer></script>'
+              new=''.join([
+                '<script src="country-factory-dex-cf4-b4-meta.js?v=pex-cf4-b4-1" defer></script>',
+                '<script src="country-factory-dex-cf4-b4-est.js?v=pex-cf4-b4-1" defer></script>',
+                '<script src="country-factory-dex-cf4-b4-lva.js?v=pex-cf4-b4-1" defer></script>',
+                '<script src="country-factory-dex-cf4-b4-svk.js?v=pex-cf4-b4-1" defer></script>',
+                '<script src="country-factory-dex-cf4-b4-svn.js?v=pex-cf4-b4-1" defer></script>',
+                '<script src="country-factory-dex-cf4-b4-bgr.js?v=pex-cf4-b4-1" defer></script>',
+                '<script src="country-factory-runtime.js?v=pex-cf4-b4-1" defer></script>'
+              ])
+              if old not in s: raise SystemExit('B3 runtime wiring anchor missing')
+              s=s.replace(old,new,1)
+              p.write_text(s)
+          s=p.read_text()
+          assert 'country-factory-dex-cf4-b4-meta.js?v=pex-cf4-b4-1' in s
+          assert 'country-factory-runtime.js?v=pex-cf4-b4-1' in s
+          PY
+          if git diff --quiet -- atlas-exit/country-factory-runtime.js atlas-exit/index.html; then
+            echo 'pushed=false' >> "$GITHUB_OUTPUT"
+          else
+            git config user.name 'ATLAS Product Executor'
+            git config user.email '71772355+ariazarifian@users.noreply.github.com'
+            git add atlas-exit/country-factory-runtime.js atlas-exit/index.html
+            git commit -m 'PEX-CF4 wire B4 records into Explorer'
+            git push origin HEAD:ops/atlas-pex-cf4-country-factory-20260924
+            echo 'pushed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Prove exact production ancestry and bounded B4 scope
+        if: steps.wiring.outputs.pushed == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROD=76efc3057b6ccc93fcd399b668506ce65ab27032
+          test "$(git merge-base "$PROD" HEAD)" = "$PROD"
+          changed="$(git diff --name-only "$PROD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            .github/workflows/atlas-pex-cf4-country-factory.yml \
+            atlas-exit/country-factory-dex-cf4-b4-bgr.js \
+            atlas-exit/country-factory-dex-cf4-b4-est.js \
+            atlas-exit/country-factory-dex-cf4-b4-lva.js \
+            atlas-exit/country-factory-dex-cf4-b4-meta.js \
+            atlas-exit/country-factory-dex-cf4-b4-svk.js \
+            atlas-exit/country-factory-dex-cf4-b4-svn.js \
+            atlas-exit/country-factory-runtime.js \
+            atlas-exit/index.html \
+            scripts/atlas_country_factory_b4_browser_qa.cjs \
+            scripts/atlas_country_factory_b4_validate.cjs | sort)"
+          test "$changed" = "$expected"
+          git diff --exit-code "$PROD" HEAD -- \
+            atlas-exit/sitemap.xml \
+            atlas-exit/country-factory-dex-cf1-b1-meta.js \
+            atlas-exit/country-factory-dex-cf1-b1-aut.js \
+            atlas-exit/country-factory-dex-cf1-b1-dnk.js \
+            atlas-exit/country-factory-dex-cf1-b1-fin.js \
+            atlas-exit/country-factory-dex-cf1-b1-irl.js \
+            atlas-exit/country-factory-dex-cf1-b1-nor.js \
+            atlas-exit/country-factory-dex-cf2-b2-meta.js \
+            atlas-exit/country-factory-dex-cf2-b2-bel.js \
+            atlas-exit/country-factory-dex-cf2-b2-cze.js \
+            atlas-exit/country-factory-dex-cf2-b2-grc.js \
+            atlas-exit/country-factory-dex-cf2-b2-lux.js \
+            atlas-exit/country-factory-dex-cf2-b2-pol.js \
+            atlas-exit/country-factory-dex-cf3-b3-meta.js \
+            atlas-exit/country-factory-dex-cf3-b3-nld.js \
+            atlas-exit/country-factory-dex-cf3-b3-swe.js \
+            atlas-exit/country-factory-dex-cf3-b3-nzl.js \
+            atlas-exit/country-factory-dex-cf3-b3-ita.js \
+            atlas-exit/country-factory-dex-cf3-b3-hrv.js \
+            atlas-exit/country-evidence-portugal.js \
+            atlas-exit/country-evidence-germany.js \
+            atlas-exit/country-evidence-united-kingdom.js \
+            atlas-exit/conflict-tensions.js \
+            atlas-exit/offres.html \
+            atlas-exit/parcours-usa.html \
+            atlas-exit/accompagnement.html \
+            atlas-exit/script.js \
+            atlas-exit/atlas-country-evidence.css \
+            atlas-exit/atlas-events.js \
+            atlas-exit/parcours-usa.js
+          ! grep -Eq 'country-factory-dex-cf4-b4-(ltu|are)' atlas-exit/index.html
+          grep -Fq 'ee523e6ec41e574fae9070ecb4872d99d0943d31440ea4dc9cd2d5d6fbbc0fd4' atlas-exit/country-factory-dex-cf4-b4-meta.js
+          grep -Fq '"clean":["EST","LVA","SVK","SVN","BGR"]' atlas-exit/country-factory-dex-cf4-b4-meta.js
+          grep -Fq '"held":["LTU","ARE"]' atlas-exit/country-factory-dex-cf4-b4-meta.js
+          for wire in \
+            country-factory-dex-cf4-b4-meta.js?v=pex-cf4-b4-1 \
+            country-factory-dex-cf4-b4-est.js?v=pex-cf4-b4-1 \
+            country-factory-dex-cf4-b4-lva.js?v=pex-cf4-b4-1 \
+            country-factory-dex-cf4-b4-svk.js?v=pex-cf4-b4-1 \
+            country-factory-dex-cf4-b4-svn.js?v=pex-cf4-b4-1 \
+            country-factory-dex-cf4-b4-bgr.js?v=pex-cf4-b4-1 \
+            country-factory-runtime.js?v=pex-cf4-b4-1; do
+            test "$(grep -o "$wire" atlas-exit/index.html | wc -l)" -eq 1
+          done
+          for wire in \
+            country-factory-dex-cf1-b1-meta.js?v=pex-cf1-b1-1 \
+            country-factory-dex-cf2-b2-meta.js?v=pex-cf2-b2-1 \
+            country-factory-dex-cf3-b3-meta.js?v=pex-cf3-b3-1; do
+            test "$(grep -o "$wire" atlas-exit/index.html | wc -l)" -eq 1
+          done
+          grep -Fq 'Content-Security-Policy' atlas-exit/index.html
+          grep -Fq 'description' atlas-exit/index.html
+          grep -Fq 'qualified_project' atlas-exit/atlas-events.js
+          grep -Fq 'QEP_DEDUPE_KEY' atlas-exit/parcours-usa.js
+      - name: Syntax and deterministic B4 validation
+        if: steps.wiring.outputs.pushed == 'false'
+        run: |
+          node --check atlas-exit/country-factory-runtime.js
+          for f in atlas-exit/country-factory-dex-cf4-b4-*.js; do node --check "$f"; done
+          node --check scripts/atlas_country_factory_b4_validate.cjs
+          node --check scripts/atlas_country_factory_b4_browser_qa.cjs
+          node scripts/atlas_country_factory_b4_validate.cjs
+          node scripts/atlas_country_factory_test.cjs
+      - name: Install Chromium
+        if: steps.wiring.outputs.pushed == 'false'
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve exact candidate
+        if: steps.wiring.outputs.pushed == 'false'
+        run: |
+          python3 -m http.server 8000 >/tmp/http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/atlas-exit/index.html >/dev/null && exit 0; sleep 1; done
+          cat /tmp/http.log; exit 1
+      - name: Exact-byte Chromium desktop and mobile Product gate
+        if: steps.wiring.outputs.pushed == 'false'
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+          ATLAS_PRODUCT_SHA: ${{ github.sha }}
+        run: timeout 360s node scripts/atlas_country_factory_b4_browser_qa.cjs
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.wiring.outputs.pushed == 'false'
+        with:
+          name: atlas-pex-cf4-b4-exact-byte-gate
+          path: qa-artifacts
+          if-no-files-found: warn
