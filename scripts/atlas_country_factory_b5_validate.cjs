@@ -29,3 +29,4 @@ const by=Object.fromEntries(records.map(r=>[r.iso3,r]));
 assert.equal(by.MLT.fields.cost_context.freshness.state,'WATCH');
 assert.match(by.CYP.fields.consumption_tax.headline,/19\s*%/);assert.match(by.HUN.fields.pit.headline,/15\s*%/);assert.match(by.ISL.fields.consumption_tax.headline,/24\s*%/);assert.match(by.GEO.fields.pit.headline,/20\s*%/);
 console.log(JSON.stringify({status:'PASS',manifest:'DEX-CF5-B5',checksum:CHECKSUM,recordset:RECORDSET,countries:CLEAN,core8Fields:40,evidenceIds:evidence.size,evidenceUses:uses.length,held:HELD,safetyRefresh:5,watch:{MLT:['cost_context']}},null,2));
+// PEX-CF5 exact-byte gate trigger after self-wiring.
