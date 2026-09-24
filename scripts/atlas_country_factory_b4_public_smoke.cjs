@@ -1,0 +1,14 @@
+const fs=require('node:fs');
+const path=require('node:path');
+const Module=require('node:module');
+const sourcePath=path.join(__dirname,'atlas_country_factory_b4_browser_qa.cjs');
+let src=fs.readFileSync(sourcePath,'utf8');
+const base=process.env.ATLAS_BASE||'https://atlas-expat.fr/index.html?atlas_cf4_live_smoke=1';
+const needle="const BASE='http://127.0.0.1:8000/atlas-exit/index.html';";
+if(!src.includes(needle)) throw new Error('Expected CF4 browser QA BASE literal not found');
+src=src.replace(needle,`const BASE=${JSON.stringify(base)};`);
+const filename=path.join(__dirname,'atlas_country_factory_b4_public_smoke.runtime.cjs');
+const m=new Module(filename,module);
+m.filename=filename;
+m.paths=module.paths;
+m._compile(src,filename);
