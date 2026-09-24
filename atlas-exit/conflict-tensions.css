@@ -4,3 +4,15 @@
 .conflict-legend{width:9px;height:9px;border-radius:50%;display:inline-block;box-shadow:0 0 0 1px rgba(255,255,255,.09)}.conflict-legend--low{background:#5f8d76}.conflict-legend--moderate{background:#a88455}.conflict-legend--high{background:#9a604a}.conflict-legend--critical{background:#814354}.conflict-layer .legend{gap:7px 9px;flex-wrap:wrap}.conflict-layer .country-row[data-conflict="Faible"] .row-value{color:#bcd8c8}.conflict-layer .country-row[data-conflict="Modéré"] .row-value{color:#e0c49b}.conflict-layer .country-row[data-conflict="Élevé"] .row-value{color:#e0ad99}.conflict-layer .country-row[data-conflict="Critique"] .row-value{color:#e5a9b9}.conflict-layer .country-row[data-conflict="undocumented"] .row-value{color:#718085}
 .comparison-table [data-conflict-row] td:not(:first-child){vertical-align:top}.comparison-table [data-conflict-row] small{display:block;margin-top:7px;line-height:1.45}
 @media(max-width:900px){.map-toolbar .layers{max-width:calc(100vw - 112px);overflow-x:auto;scrollbar-width:none}.map-toolbar .layers::-webkit-scrollbar{display:none}.map-toolbar .layers button{flex:0 0 auto;white-space:nowrap}.conflict-detail__head{align-items:center}.conflict-detail__meta>div{grid-template-columns:1fr;gap:4px}.conflict-layer .legend{max-width:92vw}}
+
+/* Explorer live hotfix 2026-09-24 */
+body.conflict-layer #countries .country-shape[data-conflict="Faible"]{fill:#5f8d76!important}
+body.conflict-layer #countries .country-shape[data-conflict="Modéré"]{fill:#a88455!important}
+body.conflict-layer #countries .country-shape[data-conflict="Élevé"]{fill:#9a604a!important}
+body.conflict-layer #countries .country-shape[data-conflict="Critique"]{fill:#814354!important}
+body.conflict-layer #countries .country-shape[data-conflict="undocumented"]{fill:#213034!important}
+body.conflict-layer #countries .country-shape[data-conflict]:hover,body.conflict-layer #countries .country-shape[data-conflict].hovered{fill:#cebb94!important}
+body:not(.conflict-layer) #countries [data-id="CAN"][style*="33, 48, 52"],body:not(.conflict-layer) #countries [data-id="CHE"][style*="33, 48, 52"],body:not(.conflict-layer) #countries [data-id="PRT"][style*="33, 48, 52"],body:not(.conflict-layer) #countries [data-id="GBR"][style*="33, 48, 52"],body:not(.conflict-layer) #countries [data-id="ITA"][style*="33, 48, 52"]{fill:#6f938c!important}
+.tooltip .tip-metrics{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.tooltip .tip-metrics>div{min-width:0}
+.tooltip .tip-metrics b{font-size:15px;line-height:1.28;white-space:normal;overflow-wrap:anywhere;word-break:normal}
