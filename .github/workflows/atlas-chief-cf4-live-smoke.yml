@@ -1,0 +1,64 @@
+name: ATLAS CHIEF CF4 exact public live smoke
+on:
+  push:
+    branches: [ops/atlas-chief-cf4-live-smoke-20260924]
+permissions:
+  contents: read
+jobs:
+  cf4-live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove QA-only branch and exact production ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROD=f64abbe7cd5bc5f6bc9fb8544b3654deb0863953
+          LIVE_REF="$(git ls-remote origin refs/heads/ops/atlas-exit-20260914 | awk '{print $1}')"
+          test "$LIVE_REF" = "$PROD"
+          git diff --exit-code "$PROD" HEAD -- atlas-exit
+          changed="$(git diff --name-only "$PROD" HEAD | sort)"
+          expected="$(printf '%s\n' .github/workflows/atlas-chief-cf4-live-smoke.yml scripts/atlas_country_factory_b4_public_smoke.cjs | sort)"
+          test "$changed" = "$expected"
+      - name: Verify exact public served bytes for CF4 delta and protected surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=76efc3057b6ccc93fcd399b668506ce65ab27032
+          PROD=f64abbe7cd5bc5f6bc9fb8544b3654deb0863953
+          mkdir -p /tmp/atlas-live
+          mapfile -t files < <( { git diff --name-only "$BASE" "$PROD" -- 'atlas-exit/*'; printf '%s\n' atlas-exit/sitemap.xml atlas-exit/offres.html atlas-exit/parcours-usa.html atlas-exit/accompagnement.html atlas-exit/conflict-tensions.js atlas-exit/atlas-events.js atlas-exit/parcours-usa.js; } | sort -u )
+          for f in "${files[@]}"; do
+            test -f "$f"
+            rel="${f#atlas-exit/}"
+            out="/tmp/atlas-live/${rel//\//_}"
+            url="https://atlas-expat.fr/${rel}?atlas_cf4=${PROD}"
+            echo "FETCH $url"
+            curl -fLsS --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 60 -H 'Cache-Control: no-cache' "$url" -o "$out"
+            if ! cmp -s "$f" "$out"; then
+              echo "PUBLIC BYTE MISMATCH: $rel"
+              sha256sum "$f" "$out"
+              exit 1
+            fi
+          done
+          echo "Exact served-byte PASS for ${#files[@]} bounded/protected files"
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Public Chromium desktop and mobile CF4 smoke
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+          ATLAS_PRODUCT_SHA: f64abbe7cd5bc5f6bc9fb8544b3654deb0863953
+          ATLAS_BASE: https://atlas-expat.fr/index.html?atlas_cf4_live_smoke=f64abbe7cd5bc5f6bc9fb8544b3654deb0863953
+        run: timeout 420s node scripts/atlas_country_factory_b4_public_smoke.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-chief-cf4-public-live-smoke
+          path: qa-artifacts
+          if-no-files-found: warn
