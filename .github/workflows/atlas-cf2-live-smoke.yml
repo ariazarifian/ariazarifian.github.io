@@ -1,0 +1,75 @@
+name: ATLAS CF2 B2 public live smoke
+on:
+  push:
+    branches: [ops/atlas-cf2-live-smoke-20260924]
+permissions:
+  contents: read
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove tooling-only branch from released B2 SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE=e6ff4653042f64f1d1bf3c93d96fd0a579f98b3f
+          test "$(git merge-base "$RELEASE" HEAD)" = "$RELEASE"
+          git diff --exit-code "$RELEASE" HEAD -- atlas-exit scripts
+      - name: Verify public served bytes for released B2 payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE=e6ff4653042f64f1d1bf3c93d96fd0a579f98b3f
+          files=(
+            atlas-exit/index.html
+            atlas-exit/country-factory-dex-cf2-b2-meta.js
+            atlas-exit/country-factory-dex-cf2-b2-bel.js
+            atlas-exit/country-factory-dex-cf2-b2-cze.js
+            atlas-exit/country-factory-dex-cf2-b2-grc.js
+            atlas-exit/country-factory-dex-cf2-b2-lux.js
+            atlas-exit/country-factory-dex-cf2-b2-pol.js
+            atlas-exit/country-factory-runtime.js
+          )
+          mkdir -p qa-artifacts/served
+          for f in "${files[@]}"; do
+            rel="${f#atlas-exit/}"
+            out="qa-artifacts/served/$(basename "$f")"
+            curl --fail --silent --show-error --location --retry 3 --retry-delay 2 "https://atlas-expat.fr/${rel}?qa=${RELEASE}" -o "$out"
+            cmp --silent "$f" "$out" || { echo "served byte mismatch: $f"; sha256sum "$f" "$out"; exit 1; }
+            sha256sum "$out"
+          done
+      - name: Install Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Run public desktop/mobile representative smoke
+        shell: bash
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+        run: |
+          set -euo pipefail
+          RELEASE=e6ff4653042f64f1d1bf3c93d96fd0a579f98b3f
+          cp scripts/atlas_country_factory_b2_browser_qa.cjs /tmp/atlas_cf2_live_qa.cjs
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/atlas_cf2_live_qa.cjs')
+          s=p.read_text()
+          s=s.replace("const PRODUCT=process.env.GITHUB_SHA||process.env.ATLAS_PRODUCT_SHA||'UNKNOWN';", "const PRODUCT='e6ff4653042f64f1d1bf3c93d96fd0a579f98b3f';")
+          s=s.replace("const BASE='http://127.0.0.1:8000/atlas-exit/index.html';", "const BASE='https://atlas-expat.fr/index.html?qa=e6ff4653042f64f1d1bf3c93d96fd0a579f98b3f';")
+          p.write_text(s)
+          PY
+          timeout 420s node /tmp/atlas_cf2_live_qa.cjs
+          cp -r qa-artifacts qa-artifacts-live-copy
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-cf2-b2-public-live-smoke
+          path: |
+            qa-artifacts
+            qa-artifacts-live-copy
+          if-no-files-found: warn
