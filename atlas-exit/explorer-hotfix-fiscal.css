@@ -1,0 +1,2 @@
+/* Fiscal map hotfix */
+body:not(.conflict-layer) #countries [data-id="CAN"][style*="33, 48, 52"],body:not(.conflict-layer) #countries [data-id="CHE"][style*="33, 48, 52"],body:not(.conflict-layer) #countries [data-id="PRT"][style*="33, 48, 52"],body:not(.conflict-layer) #countries [data-id="GBR"][style*="33, 48, 52"],body:not(.conflict-layer) #countries [data-id="ITA"][style*="33, 48, 52"]{fill:#6f938c!important}
