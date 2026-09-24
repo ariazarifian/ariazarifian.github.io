@@ -1,4 +1,4 @@
-/* PEX-CF4 — shared data-first runtime for ordinary normalized-country batches.
+/* PEX-CF5 — shared data-first runtime for ordinary normalized-country batches.
    Consumes generated batch metadata + generated records only; no country facts live here. */
 (function(root){
 'use strict';
@@ -16,7 +16,8 @@ const batchDefs=()=>[
   {meta:root.ATLAS_COUNTRY_FACTORY_META,records:root.ATLAS_COUNTRY_FACTORY_RECORDS},
   {meta:root.ATLAS_COUNTRY_FACTORY_B2_META,records:root.ATLAS_COUNTRY_FACTORY_B2_RECORDS},
   {meta:root.ATLAS_COUNTRY_FACTORY_B3_META,records:root.ATLAS_COUNTRY_FACTORY_B3_RECORDS},
-  {meta:root.ATLAS_COUNTRY_FACTORY_B4_META,records:root.ATLAS_COUNTRY_FACTORY_B4_RECORDS}
+  {meta:root.ATLAS_COUNTRY_FACTORY_B4_META,records:root.ATLAS_COUNTRY_FACTORY_B4_RECORDS},
+  {meta:root.ATLAS_COUNTRY_FACTORY_B5_META,records:root.ATLAS_COUNTRY_FACTORY_B5_RECORDS}
 ].filter(x=>x.meta||x.records);
 function boot(){
   const core=root.ATLAS_COUNTRY_EVIDENCE,batches=batchDefs();
@@ -32,7 +33,7 @@ function boot(){
   }
   if(failures.length){console.error('ATLAS Country Factory refused invalid generated records',failures);return;}
   const already=root.ATLAS_COUNTRY_FACTORY;
-  if(already?.runtimeVersion==='atlas-country-factory-runtime-v4'&&batchState.every(b=>already.batchChecksums?.[b.manifestId]===b.manifestChecksum))return;
+  if(already?.runtimeVersion==='atlas-country-factory-runtime-v5'&&batchState.every(b=>already.batchChecksums?.[b.manifestId]===b.manifestChecksum))return;
   root.ATLAS_COUNTRY_EVIDENCE=Object.freeze({...core,countries:Object.freeze({...core.countries,...records})});
   const currentCore=root.ATLAS_COUNTRY_EVIDENCE,document=root.document;
   const explorerCountries=root.AtlasExplorer.getCountries?.()||[],explorerById=new Map(explorerCountries.map(c=>[c.id,c]));
@@ -48,7 +49,7 @@ function boot(){
   const compare=document.querySelector('#compareTable');if(compare){enhanceComparator();new MutationObserver(()=>queueMicrotask(enhanceComparator)).observe(compare,{childList:true,subtree:true});}
   root.setTimeout(enhanceInspector,0);root.setTimeout(enhanceComparator,0);
   const search=document.querySelector('#countrySearch');if(search)search.dispatchEvent(new Event('input',{bubbles:true}));
-  const first=batchState[0];root.ATLAS_COUNTRY_FACTORY=Object.freeze({runtimeVersion:'atlas-country-factory-runtime-v4',schemaVersion:first?.schemaVersion||'atlas-country-factory-runtime-v1',manifestId:first?.manifestId,manifestVersion:first?.manifestVersion,manifestChecksum:first?.manifestChecksum,checkedOn:first?.checkedOn,batches:Object.freeze(batchState),batchChecksums:Object.freeze(Object.fromEntries(batchState.map(b=>[b.manifestId,b.manifestChecksum]))),registered:Object.freeze(Object.keys(records)),held:Object.freeze([...held]),orphanRecords:Object.freeze(explorerPresence()),recordCount:Object.keys(records).length});
+  const first=batchState[0];root.ATLAS_COUNTRY_FACTORY=Object.freeze({runtimeVersion:'atlas-country-factory-runtime-v5',schemaVersion:first?.schemaVersion||'atlas-country-factory-runtime-v1',manifestId:first?.manifestId,manifestVersion:first?.manifestVersion,manifestChecksum:first?.manifestChecksum,checkedOn:first?.checkedOn,batches:Object.freeze(batchState),batchChecksums:Object.freeze(Object.fromEntries(batchState.map(b=>[b.manifestId,b.manifestChecksum]))),registered:Object.freeze(Object.keys(records)),held:Object.freeze([...held]),orphanRecords:Object.freeze(explorerPresence()),recordCount:Object.keys(records).length});
 }
 boot();
 })(typeof window!=='undefined'?window:globalThis);
