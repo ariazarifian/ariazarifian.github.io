@@ -161,3 +161,6 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
 }
 body.atlas-tax-layer:not(.conflict-layer) #countries [data-tax-visual="documented-nonscalar"]{fill:#6f938c!important}
+.tooltip .tip-metrics{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.tooltip .tip-metrics>div{min-width:0}
+.tooltip .tip-metrics b{font-size:15px;line-height:1.28;white-space:normal;overflow-wrap:anywhere;word-break:normal}
