@@ -20,6 +20,21 @@ const CONFLICT_RGB={
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
+async function forceExplore(page){
+  await page.evaluate(()=>{
+    if(document.body.classList.contains('conflict-layer'))document.querySelector('[data-layer="tax"]')?.click();
+  });
+  await page.waitForFunction(()=>!document.body.classList.contains('conflict-layer'));
+  await page.evaluate(()=>{
+    const x=window.AtlasExplorer;
+    if(!x)throw new Error('AtlasExplorer unavailable');
+    x.state.layer='explore';
+    x.resetFilters();
+  });
+  await page.waitForFunction(()=>window.AtlasExplorer?.state?.layer==='explore'&&!document.body.classList.contains('atlas-tax-layer')&&!document.body.classList.contains('conflict-layer'));
+  await page.waitForTimeout(100);
+}
+
 async function run(viewport,name){
   const browser=await chromium.launch({headless:true});
   const page=await browser.newPage({viewport});
@@ -43,6 +58,7 @@ async function run(viewport,name){
     await page.waitForFunction(()=>window.ATLAS_COUNTRY_FACTORY?.recordCount>=25);
     await page.waitForTimeout(250);
 
+    await forceExplore(page);
     const baselineExplore=await page.evaluate(ids=>Object.fromEntries(ids.map(id=>[id,getComputedStyle(document.querySelector('#countries [data-id="'+id+'"]')).fill])),['CAN','CHE','AUT']);
 
     await page.click('[data-layer="tax"]');
@@ -121,8 +137,7 @@ async function run(viewport,name){
     check(!stability.taxClass,'tax visual scope is off in Stability',stability);
     check(!Object.values(stability.fills).includes(NONSCALAR),'non-scalar fiscal fill does not contaminate Stability',stability);
 
-    await page.click('[data-layer="explore"]');
-    await page.waitForFunction(()=>window.AtlasExplorer?.state?.layer==='explore');
+    await forceExplore(page);
     const exploreAfter=await page.evaluate(ids=>({
       taxClass:document.body.classList.contains('atlas-tax-layer'),
       fills:Object.fromEntries(ids.map(id=>[id,getComputedStyle(document.querySelector('#countries [data-id="'+id+'"]')).fill]))
@@ -176,8 +191,7 @@ async function run(viewport,name){
       conflict[id]={category:before.category,expected,before:before.fill,hover,drag,leave};
     }
 
-    await page.click('[data-layer="explore"]');
-    await page.waitForFunction(()=>!document.body.classList.contains('conflict-layer'));
+    await forceExplore(page);
     if(name==='mobile'&&!await page.locator('#countrySearch').isVisible()){
       await page.click('#mobileFilters');
       await page.waitForTimeout(80);
