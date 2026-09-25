@@ -64,6 +64,23 @@ async function run(viewport,name){
       check(tax[id]?.taxVisual==='documented-nonscalar',id+' Country Factory path exposes documented-nonscalar state',tax[id]);
     }
 
+    const dynamicDocumented=await page.evaluate(()=>{
+      const accepted=new Set(['country-factory','current-reference','secondary-current-reference']);
+      const evidence=window.ATLAS_COUNTRY_EVIDENCE?.countries||{};
+      return window.AtlasExplorer.getCountries().filter(c=>{
+        if(c.parent||!document.querySelector('#countries [data-id="'+c.id+'"]')||Number.isFinite(c.tax))return false;
+        if(accepted.has(String(c.taxKind||'')))return true;
+        const r=evidence[c.id],pit=r?.fields?.pit;
+        return r?.integrationState==='published'&&/^(?:READY|WATCH)/.test(String(pit?.state||''));
+      }).map(c=>c.id).sort();
+    });
+    check(dynamicDocumented.length>=CF_IDS.length,'dynamic documented non-scalar fiscal set is populated',dynamicDocumented);
+    for(const id of dynamicDocumented){
+      const v=await page.$eval('#countries [data-id="'+id+'"]',e=>({fill:getComputedStyle(e).fill,taxVisual:e.dataset.taxVisual||null}));
+      check(v.fill===NONSCALAR,id+' dynamic documented non-scalar uses semantic colour',v);
+      check(v.taxVisual==='documented-nonscalar',id+' dynamic documented non-scalar exposes semantic state',v);
+    }
+
     const missing=await page.evaluate(()=>{
       const accepted=new Set(['country-factory','current-reference','secondary-current-reference']);
       const evidence=window.ATLAS_COUNTRY_EVIDENCE?.countries||{};
