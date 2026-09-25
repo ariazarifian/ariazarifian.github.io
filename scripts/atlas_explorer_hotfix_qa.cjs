@@ -59,6 +59,14 @@ async function run(viewport,name){
     await page.waitForTimeout(250);
 
     await forceExplore(page);
+    await page.waitForTimeout(700);
+    const k0=await page.evaluate(()=>window.AtlasExplorer.state.k);
+    await page.click('#zoomIn');
+    await page.waitForTimeout(320);
+    const k1=await page.evaluate(()=>window.AtlasExplorer.state.k);
+    check(k1>k0,'zoom control increases map scale',{k0,k1});
+    await page.click('#homeMap');
+    await page.waitForTimeout(700);
     const baselineExplore=await page.evaluate(ids=>Object.fromEntries(ids.map(id=>[id,getComputedStyle(document.querySelector('#countries [data-id="'+id+'"]')).fill])),['CAN','CHE','AUT']);
 
     await page.click('[data-layer="tax"]');
@@ -204,15 +212,13 @@ async function run(viewport,name){
     await page.waitForFunction(()=>window.AtlasExplorer?.state?.selected==='CAN');
     check(!await page.locator('#inspector').getAttribute('hidden'),'selection opens inspector');
 
-    const k0=await page.evaluate(()=>window.AtlasExplorer.state.k);
-    await page.click('#zoomIn');
-    await page.waitForTimeout(350);
-    const k1=await page.evaluate(()=>window.AtlasExplorer.state.k);
-    check(k1>k0,'zoom control increases map scale',{k0,k1});
-
     await page.click('[data-save="CAN"]');
     check((await page.evaluate(()=>window.AtlasExplorer.state.saved.includes('CAN')))===true,'save adds Canada');
 
+    if(name==='mobile'&&!await page.locator('#countrySearch').isVisible()){
+      await page.click('#mobileFilters');
+      await page.waitForTimeout(80);
+    }
     await page.fill('#countrySearch','Suisse');
     await page.waitForTimeout(80);
     await page.click('[data-country="CHE"]');
