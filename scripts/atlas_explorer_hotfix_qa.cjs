@@ -7,6 +7,9 @@ const NONSCALAR='rgb(111, 147, 140)';
 const CF_IDS=['AUT','DNK','FIN','IRL','NOR','BEL','CZE','GRC','LUX','POL','NLD','SWE','NZL','ITA','HRV','EST','LVA','SVK','SVN','BGR','CYP','MLT','GEO','ISL','HUN'];
 const LEGACY_FISCAL=['CAN','CHE','PRT','GBR','DEU','ITA'];
 const CONFLICT_IDS=['CAN','JPN','THA'];
+const FUTURE_FISCAL=['OMN'];
+const CURRENT_NONSCALE_KINDS=new Set(['country-factory','current-reference','secondary-current-reference']);
+const NONCURRENT_KINDS=new Set(['future','context','historical']);
 const CONFLICT_RGB={
   'Faible':'rgb(95, 141, 118)',
   'Modéré':'rgb(168, 132, 85)',
@@ -45,6 +48,7 @@ async function run(viewport,name){
     await page.click('[data-layer="tax"]');
     await page.waitForFunction(()=>window.AtlasExplorer?.state?.layer==='tax');
     await page.waitForTimeout(100);
+    check(await page.evaluate(()=>document.body.classList.contains('atlas-tax-layer')),'tax visual scope is on in Fiscality');
 
     const tax=await page.evaluate(ids=>{
       const countries=new Map(window.AtlasExplorer.getCountries().map(c=>[c.id,c]));
@@ -52,7 +56,7 @@ async function run(viewport,name){
         const c=countries.get(id),el=document.querySelector('#countries [data-id="'+id+'"]');
         return [id,{fill:el?getComputedStyle(el).fill:null,tax:c?.tax??null,taxKind:c?.taxKind??null,taxVisual:el?.dataset.taxVisual??null}];
       }));
-    },[...new Set([...LEGACY_FISCAL,...CF_IDS])]);
+    },[...new Set([...LEGACY_FISCAL,...CF_IDS,...FUTURE_FISCAL])]);
 
     for(const id of LEGACY_FISCAL){
       check(!!tax[id]?.fill,id+' fiscal path exists',tax[id]);
@@ -63,17 +67,23 @@ async function run(viewport,name){
       check(tax[id]?.fill===NONSCALAR,id+' Country Factory null-tax uses semantic non-scalar colour',tax[id]);
       check(tax[id]?.taxVisual==='documented-nonscalar',id+' Country Factory path exposes documented-nonscalar state',tax[id]);
     }
+    for(const id of FUTURE_FISCAL){
+      check(tax[id]?.fill===GRAY,id+' future-only fiscal record remains missing-grey',tax[id]);
+      check(!tax[id]?.taxVisual||tax[id]?.taxVisual==='missing',id+' future-only fiscal record is not mislabeled documented',tax[id]);
+    }
 
-    const dynamicDocumented=await page.evaluate(()=>{
-      const accepted=new Set(['country-factory','current-reference','secondary-current-reference']);
+    const dynamicDocumented=await page.evaluate(({acceptedKinds,noncurrentKinds})=>{
+      const accepted=new Set(acceptedKinds),noncurrent=new Set(noncurrentKinds);
       const evidence=window.ATLAS_COUNTRY_EVIDENCE?.countries||{};
       return window.AtlasExplorer.getCountries().filter(c=>{
         if(c.parent||!document.querySelector('#countries [data-id="'+c.id+'"]')||Number.isFinite(c.tax))return false;
-        if(accepted.has(String(c.taxKind||'')))return true;
-        const r=evidence[c.id],pit=r?.fields?.pit;
-        return r?.integrationState==='published'&&/^(?:READY|WATCH)/.test(String(pit?.state||''));
+        const kind=String(c.taxKind||'').toLowerCase();
+        if(noncurrent.has(kind))return false;
+        if(accepted.has(kind))return true;
+        const pit=evidence[c.id]?.fields?.pit;
+        return /^(?:READY|WATCH)(?:_|$)/.test(String(pit?.state||''));
       }).map(c=>c.id).sort();
-    });
+    },{acceptedKinds:[...CURRENT_NONSCALE_KINDS],noncurrentKinds:[...NONCURRENT_KINDS]});
     check(dynamicDocumented.length>=CF_IDS.length,'dynamic documented non-scalar fiscal set is populated',dynamicDocumented);
     for(const id of dynamicDocumented){
       const v=await page.$eval('#countries [data-id="'+id+'"]',e=>({fill:getComputedStyle(e).fill,taxVisual:e.dataset.taxVisual||null}));
@@ -81,17 +91,20 @@ async function run(viewport,name){
       check(v.taxVisual==='documented-nonscalar',id+' dynamic documented non-scalar exposes semantic state',v);
     }
 
-    const missing=await page.evaluate(()=>{
-      const accepted=new Set(['country-factory','current-reference','secondary-current-reference']);
+    const missing=await page.evaluate(({acceptedKinds,noncurrentKinds})=>{
+      const accepted=new Set(acceptedKinds),noncurrent=new Set(noncurrentKinds);
       const evidence=window.ATLAS_COUNTRY_EVIDENCE?.countries||{};
       return window.AtlasExplorer.getCountries().filter(c=>{
         if(c.parent||!document.querySelector('#countries [data-id="'+c.id+'"]'))return false;
-        if(Number.isFinite(c.tax)||accepted.has(String(c.taxKind||'')))return false;
-        const r=evidence[c.id],pit=r?.fields?.pit,published=r?.integrationState==='published';
-        if(published&&/^(?:READY|WATCH)/.test(String(pit?.state||'')))return false;
+        if(Number.isFinite(c.tax))return false;
+        const kind=String(c.taxKind||'').toLowerCase();
+        if(accepted.has(kind))return false;
+        if(noncurrent.has(kind))return true;
+        const pit=evidence[c.id]?.fields?.pit;
+        if(/^(?:READY|WATCH)(?:_|$)/.test(String(pit?.state||'')))return false;
         return true;
       }).slice(0,4).map(c=>c.id);
-    });
+    },{acceptedKinds:[...CURRENT_NONSCALE_KINDS],noncurrentKinds:[...NONCURRENT_KINDS]});
     check(missing.length>=1,'dynamic genuinely-undocumented fiscal controls found',missing);
     for(const id of missing){
       const v=await page.$eval('#countries [data-id="'+id+'"]',e=>({fill:getComputedStyle(e).fill,taxVisual:e.dataset.taxVisual||null}));
