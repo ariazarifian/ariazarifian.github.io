@@ -1,0 +1,16 @@
+QA-only patch for scripts/atlas_explorer_hotfix_qa.cjs
+
+Goal: prevent false zoom failure caused by Inspector overlaying map controls.
+
+1. Immediately after the initial forceExplore(page), before baselineExplore is captured:
+- wait 700 ms for resetMap() fly completion;
+- read window.AtlasExplorer.state.k as k0;
+- click #zoomIn;
+- wait 320 ms;
+- read k1 and assert k1 > k0;
+- click #homeMap;
+- wait 700 ms.
+
+2. Remove the later zoom block that currently runs after selecting Canada and opening #inspector.
+
+Product bytes under atlas-exit/ must remain unchanged.
