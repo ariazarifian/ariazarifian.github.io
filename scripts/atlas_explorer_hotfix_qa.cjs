@@ -115,20 +115,12 @@ async function run(viewport,name){
       check(v.taxVisual==='documented-nonscalar',id+' dynamic documented non-scalar exposes semantic state',v);
     }
 
-    const missing=await page.evaluate(({acceptedKinds,noncurrentKinds})=>{
-      const accepted=new Set(acceptedKinds),noncurrent=new Set(noncurrentKinds);
-      const evidence=window.ATLAS_COUNTRY_EVIDENCE?.countries||{};
-      return window.AtlasExplorer.getCountries().filter(c=>{
-        if(c.parent||!document.querySelector('#countries [data-id="'+c.id+'"]'))return false;
-        if(Number.isFinite(c.tax))return false;
-        const kind=String(c.taxKind||'').toLowerCase();
-        if(accepted.has(kind))return false;
-        if(noncurrent.has(kind))return true;
-        const pit=evidence[c.id]?.fields?.pit;
-        if(/^(?:READY|WATCH)(?:_|$)/.test(String(pit?.state||'')))return false;
-        return true;
-      }).slice(0,4).map(c=>c.id);
-    },{acceptedKinds:[...CURRENT_NONSCALE_KINDS],noncurrentKinds:[...NONCURRENT_KINDS]});
+    await page.waitForFunction(()=>Array.isArray(window.ATLAS_FISCAL_AUDIT?.missingPit));
+    const missing=await page.evaluate(()=>(
+      (window.ATLAS_FISCAL_AUDIT?.missingPit||[])
+        .filter(id=>document.querySelector('#countries [data-id="'+id+'"]'))
+        .slice(0,4)
+    ));
     check(missing.length>=1,'dynamic genuinely-undocumented fiscal controls found',missing);
     for(const id of missing){
       const v=await page.$eval('#countries [data-id="'+id+'"]',e=>({fill:getComputedStyle(e).fill,taxVisual:e.dataset.taxVisual||null}));
@@ -210,7 +202,7 @@ async function run(viewport,name){
     check(await page.locator('[data-country="CAN"]').count()===1,'search finds Canada');
     await page.click('[data-country="CAN"]');
     await page.waitForFunction(()=>window.AtlasExplorer?.state?.selected==='CAN');
-    check(!await page.locator('#inspector').getAttribute('hidden'),'selection opens inspector');
+    check(await page.locator('#inspector').isVisible(),'selection opens visible inspector');
 
     await page.click('[data-save="CAN"]');
     check((await page.evaluate(()=>window.AtlasExplorer.state.saved.includes('CAN')))===true,'save adds Canada');
