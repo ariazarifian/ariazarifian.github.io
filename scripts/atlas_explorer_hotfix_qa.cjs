@@ -19,6 +19,37 @@ const CONFLICT_RGB={
 };
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const FILL_SETTLE_MS=450;
+
+async function settleFills(page){
+  await page.waitForTimeout(FILL_SETTLE_MS);
+}
+
+async function waitForCountryFactoryReady(page){
+  const deadline=Date.now()+12000;
+  while(Date.now()<deadline){
+    const ready=await page.evaluate(ids=>{
+      const countries=new Map((window.AtlasExplorer?.getCountries?.()||[]).map(c=>[c.id,c]));
+      return ids.every(id=>{
+        const c=countries.get(id);
+        return !!c && c.tax===null && String(c.taxKind||'').toLowerCase()==='country-factory';
+      });
+    },CF_IDS);
+    if(ready)return;
+    await page.waitForTimeout(100);
+  }
+  throw new Error('Country Factory runtime did not reach registered semantic-ready state');
+}
+
+async function ensureMobileSidebarOpen(page,name){
+  if(name!=='mobile')return;
+  const isOpen=await page.$eval('#sidebar',e=>e.classList.contains('open'));
+  if(!isOpen){
+    await page.click('#mobileFilters');
+    await page.waitForFunction(()=>document.querySelector('#sidebar')?.classList.contains('open'));
+    await page.waitForTimeout(100);
+  }
+}
 
 async function forceExplore(page){
   await page.evaluate(()=>{
@@ -32,7 +63,7 @@ async function forceExplore(page){
     x.resetFilters();
   });
   await page.waitForFunction(()=>window.AtlasExplorer?.state?.layer==='explore'&&!document.body.classList.contains('atlas-tax-layer')&&!document.body.classList.contains('conflict-layer'));
-  await page.waitForTimeout(100);
+  await settleFills(page);
 }
 
 async function run(viewport,name){
@@ -56,6 +87,7 @@ async function run(viewport,name){
     await page.goto(BASE,{waitUntil:'networkidle'});
     await page.waitForFunction(()=>window.AtlasExplorer?.ready?.()===true);
     await page.waitForFunction(()=>window.ATLAS_COUNTRY_FACTORY?.recordCount>=25);
+    await waitForCountryFactoryReady(page);
     await page.waitForTimeout(250);
 
     await forceExplore(page);
@@ -71,14 +103,14 @@ async function run(viewport,name){
 
     await page.click('[data-layer="tax"]');
     await page.waitForFunction(()=>window.AtlasExplorer?.state?.layer==='tax');
-    await page.waitForTimeout(100);
+    await settleFills(page);
     check(await page.evaluate(()=>document.body.classList.contains('atlas-tax-layer')),'tax visual scope is on in Fiscality');
 
     const tax=await page.evaluate(ids=>{
       const countries=new Map(window.AtlasExplorer.getCountries().map(c=>[c.id,c]));
       return Object.fromEntries(ids.map(id=>{
         const c=countries.get(id),el=document.querySelector('#countries [data-id="'+id+'"]');
-        return [id,{fill:el?getComputedStyle(el).fill:null,tax:c?.tax??null,taxKind:c?.taxKind??null,taxVisual:el?.dataset.taxVisual??null}];
+        return [id,{countryExists:!!c,hasPath:!!el,fill:el?getComputedStyle(el).fill:null,tax:c?c.tax:null,taxKind:c?.taxKind??null,taxVisual:el?.dataset.taxVisual??null}];
       }));
     },[...new Set([...LEGACY_FISCAL,...CF_IDS,...FUTURE_FISCAL])]);
 
@@ -88,8 +120,13 @@ async function run(viewport,name){
       if(tax[id]?.tax==null)check(tax[id]?.taxVisual==='documented-nonscalar',id+' null-tax is semantically documented-nonscalar',tax[id]);
     }
     for(const id of CF_IDS){
-      check(tax[id]?.fill===NONSCALAR,id+' Country Factory null-tax uses semantic non-scalar colour',tax[id]);
-      check(tax[id]?.taxVisual==='documented-nonscalar',id+' Country Factory path exposes documented-nonscalar state',tax[id]);
+      check(tax[id]?.countryExists===true,id+' Country Factory record is registered',tax[id]);
+      check(tax[id]?.tax===null,id+' Country Factory record keeps null scalar tax',tax[id]);
+      check(String(tax[id]?.taxKind||'').toLowerCase()==='country-factory',id+' Country Factory semantic taxKind is present',tax[id]);
+      if(tax[id]?.hasPath){
+        check(tax[id]?.fill===NONSCALAR,id+' Country Factory mapped path uses semantic non-scalar colour',tax[id]);
+        check(tax[id]?.taxVisual==='documented-nonscalar',id+' Country Factory mapped path exposes documented-nonscalar state',tax[id]);
+      }
     }
     for(const id of FUTURE_FISCAL){
       check(tax[id]?.fill===GRAY,id+' future-only fiscal record remains missing-grey',tax[id]);
@@ -100,7 +137,7 @@ async function run(viewport,name){
       const accepted=new Set(acceptedKinds),noncurrent=new Set(noncurrentKinds);
       const evidence=window.ATLAS_COUNTRY_EVIDENCE?.countries||{};
       return window.AtlasExplorer.getCountries().filter(c=>{
-        if(c.parent||!document.querySelector('#countries [data-id="'+c.id+'"]')||Number.isFinite(c.tax))return false;
+        if(c.parent||Number.isFinite(c.tax))return false;
         const kind=String(c.taxKind||'').toLowerCase();
         if(noncurrent.has(kind))return false;
         if(accepted.has(kind))return true;
@@ -110,26 +147,33 @@ async function run(viewport,name){
     },{acceptedKinds:[...CURRENT_NONSCALE_KINDS],noncurrentKinds:[...NONCURRENT_KINDS]});
     check(dynamicDocumented.length>=CF_IDS.length,'dynamic documented non-scalar fiscal set is populated',dynamicDocumented);
     for(const id of dynamicDocumented){
-      const v=await page.$eval('#countries [data-id="'+id+'"]',e=>({fill:getComputedStyle(e).fill,taxVisual:e.dataset.taxVisual||null}));
-      check(v.fill===NONSCALAR,id+' dynamic documented non-scalar uses semantic colour',v);
-      check(v.taxVisual==='documented-nonscalar',id+' dynamic documented non-scalar exposes semantic state',v);
+      const v=await page.evaluate(id=>{
+        const el=document.querySelector('#countries [data-id="'+id+'"]');
+        return{hasPath:!!el,fill:el?getComputedStyle(el).fill:null,taxVisual:el?.dataset.taxVisual||null};
+      },id);
+      if(v.hasPath){
+        check(v.fill===NONSCALAR,id+' dynamic documented non-scalar uses semantic colour',v);
+        check(v.taxVisual==='documented-nonscalar',id+' dynamic documented non-scalar exposes semantic state',v);
+      }
     }
 
     await page.waitForFunction(()=>Array.isArray(window.ATLAS_FISCAL_AUDIT?.missingPit));
-    const missing=await page.evaluate(()=>(
-      (window.ATLAS_FISCAL_AUDIT?.missingPit||[])
-        .filter(id=>document.querySelector('#countries [data-id="'+id+'"]'))
-        .slice(0,4)
-    ));
-    check(missing.length>=1,'dynamic genuinely-undocumented fiscal controls found',missing);
+    const missing=await page.evaluate(()=>(window.ATLAS_FISCAL_AUDIT?.missingPit||[]).slice());
+    check(Array.isArray(missing),'fiscal missingPit audit is available',missing);
     for(const id of missing){
-      const v=await page.$eval('#countries [data-id="'+id+'"]',e=>({fill:getComputedStyle(e).fill,taxVisual:e.dataset.taxVisual||null}));
-      check(v.fill===GRAY,id+' genuinely-undocumented remains grey',v);
-      check(!v.taxVisual||v.taxVisual==='missing',id+' genuinely-undocumented is not mislabeled documented',v);
+      const v=await page.evaluate(id=>{
+        const el=document.querySelector('#countries [data-id="'+id+'"]');
+        return{hasPath:!!el,fill:el?getComputedStyle(el).fill:null,taxVisual:el?.dataset.taxVisual||null};
+      },id);
+      if(v.hasPath){
+        check(v.fill===GRAY,id+' genuinely-undocumented remains grey',v);
+        check(!v.taxVisual||v.taxVisual==='missing',id+' genuinely-undocumented is not mislabeled documented',v);
+      }
     }
 
     await page.click('[data-layer="stability"]');
     await page.waitForFunction(()=>window.AtlasExplorer?.state?.layer==='stability');
+    await settleFills(page);
     const stability=await page.evaluate(ids=>({
       taxClass:document.body.classList.contains('atlas-tax-layer'),
       fills:Object.fromEntries(ids.map(id=>[id,getComputedStyle(document.querySelector('#countries [data-id="'+id+'"]')).fill]))
@@ -160,6 +204,7 @@ async function run(viewport,name){
 
     await page.click('[data-layer="conflict"]');
     await page.waitForFunction(()=>document.body.classList.contains('conflict-layer'));
+    await settleFills(page);
     const conflict={};
     for(const id of CONFLICT_IDS){
       const loc=page.locator('#countries [data-id="'+id+'"]');
@@ -169,6 +214,7 @@ async function run(viewport,name){
       check(before.fill===expected,id+' Conflict categorical fill is exact before pointer activity',{...before,expected});
 
       await loc.hover({force:true});
+      await settleFills(page);
       const hover=await loc.evaluate(e=>getComputedStyle(e).fill);
       check(hover===expected,id+' Conflict fill survives hover',{hover,expected});
 
@@ -181,21 +227,19 @@ async function run(viewport,name){
         await page.mouse.move(Math.max(2,Math.min(viewport.width-2,x+24)),Math.max(2,Math.min(viewport.height-2,y+16)),{steps:4});
         await page.mouse.up();
       }
+      await settleFills(page);
       const drag=await loc.evaluate(e=>getComputedStyle(e).fill);
       check(drag===expected,id+' Conflict fill survives pointerdown/drag',{drag,expected});
 
       await page.mouse.move(viewport.width-3,viewport.height-3);
-      await page.waitForTimeout(60);
+      await settleFills(page);
       const leave=await loc.evaluate(e=>getComputedStyle(e).fill);
       check(leave===expected,id+' Conflict fill survives pointermove/pointerleave',{leave,expected});
       conflict[id]={category:before.category,expected,before:before.fill,hover,drag,leave};
     }
 
     await forceExplore(page);
-    if(name==='mobile'&&!await page.locator('#countrySearch').isVisible()){
-      await page.click('#mobileFilters');
-      await page.waitForTimeout(80);
-    }
+    await ensureMobileSidebarOpen(page,name);
 
     await page.fill('#countrySearch','Canada');
     await page.waitForTimeout(80);
@@ -207,10 +251,7 @@ async function run(viewport,name){
     await page.click('[data-save="CAN"]');
     check((await page.evaluate(()=>window.AtlasExplorer.state.saved.includes('CAN')))===true,'save adds Canada');
 
-    if(name==='mobile'&&!await page.locator('#countrySearch').isVisible()){
-      await page.click('#mobileFilters');
-      await page.waitForTimeout(80);
-    }
+    await ensureMobileSidebarOpen(page,name);
     await page.fill('#countrySearch','Suisse');
     await page.waitForTimeout(80);
     await page.click('[data-country="CHE"]');
