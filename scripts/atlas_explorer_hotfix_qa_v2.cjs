@@ -210,7 +210,7 @@ async function run(viewport,name){
     check(await page.locator('[data-country="CAN"]').count()===1,'search finds Canada');
     await page.click('[data-country="CAN"]');
     await page.waitForFunction(()=>window.AtlasExplorer?.state?.selected==='CAN');
-    check(!await page.locator('#inspector').getAttribute('hidden'),'selection opens inspector');
+    check(await page.locator('#inspector').isVisible(),'selection opens visible inspector');
 
     await page.click('[data-save="CAN"]');
     check((await page.evaluate(()=>window.AtlasExplorer.state.saved.includes('CAN')))===true,'save adds Canada');
