@@ -44,11 +44,17 @@ async function waitForCountryFactoryReady(page){
 async function ensureMobileSidebarOpen(page,name){
   if(name!=='mobile')return;
   const isOpen=await page.$eval('#sidebar',e=>e.classList.contains('open'));
-  if(!isOpen){
-    await page.click('#mobileFilters');
-    await page.waitForFunction(()=>document.querySelector('#sidebar')?.classList.contains('open'));
-    await page.waitForTimeout(100);
+  if(isOpen)return;
+
+  if(await page.locator('#inspector').isVisible()){
+    const dismiss=page.locator('#inspector [data-dismiss]').first();
+    await dismiss.click();
+    await page.waitForFunction(()=>document.querySelector('#inspector')?.hidden===true);
   }
+
+  await page.click('#mobileFilters');
+  await page.waitForFunction(()=>document.querySelector('#sidebar')?.classList.contains('open'));
+  await page.waitForTimeout(100);
 }
 
 async function forceExplore(page){
