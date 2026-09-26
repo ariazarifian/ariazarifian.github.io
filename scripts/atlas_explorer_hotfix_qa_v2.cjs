@@ -25,20 +25,63 @@ async function settleFills(page){
   await page.waitForTimeout(FILL_SETTLE_MS);
 }
 
+async function countryFactorySemanticSnapshot(page){
+  return page.evaluate(ids=>{
+    const runtime=window.ATLAS_COUNTRY_FACTORY||null;
+    const countries=new Map((window.AtlasExplorer?.getCountries?.()||[]).map(c=>[c.id,c]));
+    const records=Object.fromEntries(ids.map(id=>{
+      const c=countries.get(id);
+      return [id,{
+        countryExists:!!c,
+        tax:c?.tax??null,
+        taxKind:c?.taxKind??null
+      }];
+    }));
+    return{
+      runtimeVersion:runtime?.runtimeVersion??null,
+      recordCount:runtime?.recordCount??null,
+      registered:Array.isArray(runtime?.registered)?[...runtime.registered]:null,
+      orphanRecords:Array.isArray(runtime?.orphanRecords)?[...runtime.orphanRecords]:null,
+      batchChecksums:runtime?.batchChecksums?{...runtime.batchChecksums}:null,
+      batches:Array.isArray(runtime?.batches)?runtime.batches.map(b=>({
+        manifestId:b?.manifestId??null,
+        manifestVersion:b?.manifestVersion??null,
+        manifestChecksum:b?.manifestChecksum??null,
+        checkedOn:b?.checkedOn??null,
+        registered:Array.isArray(b?.registered)?[...b.registered]:null,
+        held:Array.isArray(b?.held)?[...b.held]:null
+      })):null,
+      records
+    };
+  },CF_IDS);
+}
+
+function countryFactorySnapshotReady(snapshot){
+  if(!snapshot||!snapshot.records)return false;
+  return CF_IDS.every(id=>{
+    const c=snapshot.records[id];
+    return !!c?.countryExists&&c.tax===null&&String(c.taxKind||'').toLowerCase()==='country-factory';
+  });
+}
+
 async function waitForCountryFactoryReady(page){
   const deadline=Date.now()+12000;
+  let snapshot=null;
   while(Date.now()<deadline){
-    const ready=await page.evaluate(ids=>{
-      const countries=new Map((window.AtlasExplorer?.getCountries?.()||[]).map(c=>[c.id,c]));
-      return ids.every(id=>{
-        const c=countries.get(id);
-        return !!c && c.tax===null && String(c.taxKind||'').toLowerCase()==='country-factory';
-      });
-    },CF_IDS);
-    if(ready)return;
+    snapshot=await countryFactorySemanticSnapshot(page);
+    if(countryFactorySnapshotReady(snapshot))return snapshot;
     await page.waitForTimeout(100);
   }
-  throw new Error('Country Factory runtime did not reach registered semantic-ready state');
+
+  // One bounded settle/recheck after the runtime exists. This preserves the
+  // semantic contract while distinguishing persistent mismatch from short churn.
+  if(snapshot?.runtimeVersion){
+    await page.waitForTimeout(500);
+    snapshot=await countryFactorySemanticSnapshot(page);
+    if(countryFactorySnapshotReady(snapshot))return snapshot;
+  }
+
+  throw new Error('Country Factory runtime did not reach registered semantic-ready state: '+JSON.stringify(snapshot));
 }
 
 async function ensureMobileSidebarOpen(page,name){
