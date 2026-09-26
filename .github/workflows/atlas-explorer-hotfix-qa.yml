@@ -33,8 +33,8 @@ jobs:
           test "$(git hash-object atlas-exit/atlas-ui-explorer.css)" = "bb00d7f9b2bd0d2d7f32deace9ee93ff0a3106d8"
           test "$(git hash-object atlas-exit/conflict-tensions.css)" = "3d76745cc8268ae874f87efe6313021f15554bb8"
           test "$(git hash-object atlas-exit/script.js)" = "9e49cb253a06a0a87eca5eb4b0776cd887a508e6"
-          test "$(git hash-object scripts/atlas_explorer_hotfix_qa.cjs)" = "f85beb4927d0c3be1890043a14f0e40a4aa3448e"
-          test "$(git hash-object scripts/atlas_explorer_hotfix_qa_v2.cjs)" = "f85beb4927d0c3be1890043a14f0e40a4aa3448e"
+          test "$(git hash-object scripts/atlas_explorer_hotfix_qa.cjs)" = "2eb9611b4994757d5bfa8c728644438c6c850720"
+          test "$(git hash-object scripts/atlas_explorer_hotfix_qa_v2.cjs)" = "2eb9611b4994757d5bfa8c728644438c6c850720"
 
       - name: Setup Node
         uses: actions/setup-node@v4
